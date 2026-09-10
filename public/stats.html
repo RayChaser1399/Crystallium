@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crystallium — статистика</title>
+<style>
+  :root{--bg:#0b0e1a;--panel:#131829;--line:#232b45;--text:#eef1fb;--sub:#8992b3;--gold:#f2c14e;--good:#3ecf7e;--bad:#ff5d6c}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;padding:20px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--sub);font-size:13px;margin:0 0 20px}
+  .gate{max-width:360px;margin:80px auto;text-align:center}
+  .gate input{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:12px;font-size:15px;margin:12px 0}
+  .gate button,.refresh{background:var(--gold);border:none;border-radius:10px;color:#1a1300;font-weight:700;padding:11px 18px;font-size:14px;cursor:pointer}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .card b{display:block;font-size:24px;margin-bottom:2px}
+  .card span{color:var(--sub);font-size:12px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:20px}
+  .panel h2{font-size:14px;margin:0 0 12px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--sub);font-weight:600}
+  .bad{color:var(--bad)}.good{color:var(--good)}
+  canvas{width:100%;height:140px;display:block}
+  .topbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+  .err{color:var(--bad);margin-top:10px;font-size:13px}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate">
+  <h1>Crystallium</h1>
+  <p class="sub">Панель статистики. Введите admin-токен (ADMIN_TOKEN из .env сервера).</p>
+  <input id="tokenInput" type="password" placeholder="Токен доступа" autocomplete="off">
+  <button id="btnEnter">Войти</button>
+  <div id="gateErr" class="err"></div>
+</div>
+
+<div id="dash" class="hidden">
+  <div class="topbar">
+    <div>
+      <h1>Crystallium — статистика</h1>
+      <p class="sub" id="lastUpdate">—</p>
+    </div>
+    <button class="refresh" id="btnRefresh">Обновить</button>
+  </div>
+
+  <div class="grid" id="cards"></div>
+
+  <div class="panel">
+    <h2>Активные игроки по дням (DAU)</h2>
+    <canvas id="dauChart" width="900" height="140"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>Самые сложные уровни (низкий % побед)</h2>
+    <table id="dropTable"><thead><tr><th>Уровень</th><th>Стартов</th><th>Побед</th><th>% побед</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Покупки</h2>
+    <table id="purchaseTable"><thead><tr><th>Способ</th><th>Количество</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Все события</h2>
+    <table id="eventsTable"><thead><tr><th>Событие</th><th>Количество</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<script>
+var TOKEN = sessionStorage.getItem('crys_admin_token') || '';
+
+function fmtDate(ts){ if(!ts) return '—'; return new Date(ts).toLocaleString(); }
+
+function drawBars(canvas, data){
+  var ctx = canvas.getContext('2d');
+  var w = canvas.width = canvas.clientWidth || 900;
+  var h = canvas.height;
+  ctx.clearRect(0,0,w,h);
+  if(!data.length){ ctx.fillStyle='#8992b3'; ctx.fillText('Нет данных', 10, 20); return; }
+  var max = Math.max.apply(null, data.map(function(d){return d.users;})) || 1;
+  var bw = w / data.length;
+  ctx.font = '10px sans-serif';
+  data.forEach(function(d, i){
+    var bh = (d.users / max) * (h - 30);
+    var x = i * bw + 2;
+    ctx.fillStyle = '#f2c14e';
+    ctx.fillRect(x, h - bh - 20, bw - 4, bh);
+    ctx.fillStyle = '#8992b3';
+    ctx.save();
+    ctx.translate(x + (bw-4)/2, h - 4);
+    ctx.rotate(-Math.PI/3);
+    ctx.fillText(d.day.slice(5), 0, 0);
+    ctx.restore();
+    ctx.fillStyle = '#eef1fb';
+    ctx.fillText(d.users, x, h - bh - 24);
+  });
+}
+
+function render(s){
+  var cards = [
+    {v:s.uniqueUsers, l:'Уникальных игроков'},
+    {v:s.totalEvents, l:'Всего событий'},
+    {v:s.ads.completionRate+'%', l:'Досмотров рекламы'},
+    {v:s.paidTotal, l:'Оплативших "без рекламы"'},
+    {v:(s.purchases.ton||0)+(s.purchases.usdt||0)+(s.purchases.stars||0), l:'Подтверждённых покупок'},
+  ];
+  document.getElementById('cards').innerHTML = cards.map(function(c){
+    return '<div class="card"><b>'+c.v+'</b><span>'+c.l+'</span></div>';
+  }).join('');
+
+  document.getElementById('lastUpdate').textContent = 'Последнее событие: ' + fmtDate(s.lastEventAt);
+
+  drawBars(document.getElementById('dauChart'), s.dau);
+
+  var dropBody = document.querySelector('#dropTable tbody');
+  dropBody.innerHTML = s.dropOff.map(function(d){
+    var cls = d.winRate < 30 ? 'bad' : d.winRate > 70 ? 'good' : '';
+    return '<tr><td>'+(d.level+1)+'</td><td>'+d.starts+'</td><td>'+d.wins+'</td><td class="'+cls+'">'+d.winRate+'%</td></tr>';
+  }).join('') || '<tr><td colspan="4">Нет данных</td></tr>';
+
+  var pBody = document.querySelector('#purchaseTable tbody');
+  var labels = {ton:'TON', usdt:'USDT', stars:'Telegram Stars', demo_unverified:'Демо (без сервера)'};
+  pBody.innerHTML = Object.keys(s.purchases).map(function(k){
+    return '<tr><td>'+(labels[k]||k)+'</td><td>'+s.purchases[k]+'</td></tr>';
+  }).join('');
+
+  var eBody = document.querySelector('#eventsTable tbody');
+  var types = Object.keys(s.byType).sort(function(a,b){return s.byType[b]-s.byType[a];});
+  eBody.innerHTML = types.map(function(k){
+    return '<tr><td>'+k+'</td><td>'+s.byType[k]+'</td></tr>';
+  }).join('');
+}
+
+function load(){
+  document.getElementById('gateErr').textContent = '';
+  fetch('/api/stats?token=' + encodeURIComponent(TOKEN))
+    .then(function(r){
+      if(r.status === 401) throw new Error('Неверный токен');
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(s){
+      document.getElementById('gate').classList.add('hidden');
+      document.getElementById('dash').classList.remove('hidden');
+      render(s);
+    })
+    .catch(function(e){
+      sessionStorage.removeItem('crys_admin_token');
+      document.getElementById('gate').classList.remove('hidden');
+      document.getElementById('dash').classList.add('hidden');
+      document.getElementById('gateErr').textContent = e.message;
+    });
+}
+
+document.getElementById('btnEnter').onclick = function(){
+  TOKEN = document.getElementById('tokenInput').value.trim();
+  sessionStorage.setItem('crys_admin_token', TOKEN);
+  load();
+};
+document.getElementById('tokenInput').addEventListener('keydown', function(e){
+  if(e.key === 'Enter') document.getElementById('btnEnter').click();
+});
+document.getElementById('btnRefresh').onclick = load;
+
+if(TOKEN) load();
+</script>
+</body>
+</html>
