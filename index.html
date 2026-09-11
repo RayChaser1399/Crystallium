@@ -520,8 +520,9 @@ var TGW=(function(){
           if(open)open.classList.remove('open');
           else if(G.scr==='game')showScreen('home');
           else if(G.scr==='home')showScreen('menu');
+          syncBackButton();
         });
-        api.BackButton.show();
+        syncBackButton();
       }
     }catch(e){}
   }
@@ -538,7 +539,15 @@ var TGW=(function(){
     try{if(api&&api.CloudStorage)api.CloudStorage.setItem(k,v,function(err){res(!err);});else res(false);}catch(e){res(false);}});}
   function csGet(k){return new Promise(function(res){
     try{if(api&&api.CloudStorage)api.CloudStorage.getItem(k,function(err,v){res(v||null);});else res(null);}catch(e){res(null);}});}
-  return {api:api,isTG:isTG,init:init,haptic:haptic,csSet:csSet,csGet:csGet,
+  function syncBackButton(){
+    if(!api||!api.BackButton)return;
+    try{
+      var open=document.querySelector('.overlay.open');
+      var hasBack=!!open||(typeof G!=='undefined'&&G.scr&&G.scr!=='menu');
+      if(hasBack)api.BackButton.show();else api.BackButton.hide();
+    }catch(e){}
+  }
+  return {api:api,isTG:isTG,init:init,haptic:haptic,csSet:csSet,csGet:csGet,syncBackButton:syncBackButton,
     get initData(){return api?api.initData:'';},
     get rawUser(){return (api&&api.initDataUnsafe&&api.initDataUnsafe.user)?api.initDataUnsafe.user:null;}};
 })();
@@ -2532,6 +2541,7 @@ function showScreen(name){
   G.scr=name;
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   $('#scr-'+name).classList.add('active');
+  TGW.syncBackButton();
   if(name==='menu'){
     renderMenuUser();updateMenuStats();updateDailyUI();
   }
@@ -2546,8 +2556,8 @@ function showScreen(name){
 }
 
 /* ═══ МОДАЛКИ ═══ */
-function openModal(id){$('#'+id).classList.add('open');}
-function closeModal(id){$('#'+id).classList.remove('open');}
+function openModal(id){$('#'+id).classList.add('open');TGW.syncBackButton();}
+function closeModal(id){$('#'+id).classList.remove('open');TGW.syncBackButton();}
 function toast(text,ms){
   var t=$('#toast');t.textContent=text;t.classList.add('show');
   if(t._h)clearTimeout(t._h);
@@ -2942,7 +2952,7 @@ function runDiagnostics(){
 /* ═══ КНОПКИ ═══ */
 function bindUI(){
   document.querySelectorAll('[data-close]').forEach(function(b){
-    b.onclick=function(){SND.play('click');b.closest('.overlay').classList.remove('open');};
+    b.onclick=function(){SND.play('click');b.closest('.overlay').classList.remove('open');TGW.syncBackButton();};
   });
   $('#btnConfYes').onclick=function(){closeModal('mConfirm');if(confCb)confCb();};
   $('#btnShop').onclick=function(){
