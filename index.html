@@ -17,7 +17,25 @@
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
-body{background:var(--bg);color:var(--text);font-family:'Alegreya Sans',sans-serif;overflow:hidden;user-select:none;overscroll-behavior:none}
+body{
+  color:var(--text);font-family:'Alegreya Sans',sans-serif;overflow:hidden;user-select:none;overscroll-behavior:none;
+  background-color:var(--bg);
+  background-image:
+    radial-gradient(60% 45% at 18% -6%, rgba(242,193,78,.16), transparent 60%),
+    radial-gradient(55% 40% at 100% 8%, rgba(176,92,242,.14), transparent 62%),
+    radial-gradient(70% 55% at 50% 112%, rgba(63,116,255,.16), transparent 65%),
+    radial-gradient(140% 90% at 50% 50%, #10152a 0%, #0b0e17 55%, #060810 100%);
+}
+#vignette{position:fixed;inset:0;z-index:2;pointer-events:none;
+  background:radial-gradient(120% 85% at 50% 45%, transparent 55%, rgba(4,5,10,.55) 100%);
+}
+#bgpattern{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+  background-image:
+    radial-gradient(rgba(216,180,90,.35) 1px, transparent 1.6px),
+    radial-gradient(rgba(176,92,242,.22) 1px, transparent 1.6px);
+  background-size:120px 120px, 180px 180px;
+  background-position:0 0, 60px 90px;
+}
 #bgc{position:fixed;inset:0;width:100%;height:100%;z-index:0}
 #app{position:relative;z-index:1;height:100vh;height:100dvh;display:flex;flex-direction:column}
 .screen{display:none;flex-direction:column;height:100%;min-height:0}
@@ -56,6 +74,24 @@ svg.ic{width:1em;height:1em;fill:currentColor;vertical-align:-.12em}
 .mstars svg{width:12px;height:12px;fill:#3c4157}
 .mstars svg.on{fill:var(--gold)}
 .home-foot{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;gap:8px;padding:12px;background:linear-gradient(transparent,var(--bg) 45%);flex-wrap:wrap}
+#scr-menu{padding:16px 18px;overflow-y:auto;justify-content:flex-start}
+.menu-hero{margin-top:6px}
+.menu-logo{width:52px;height:52px;fill:var(--gold2);filter:drop-shadow(0 0 14px rgba(242,193,78,.45));margin-bottom:6px}
+.menu-lore{max-width:420px;margin:14px auto 0;text-align:center;color:var(--muted);font-size:12.5px;line-height:1.55;font-style:italic}
+.menu-stats{display:flex;justify-content:center;gap:18px;margin:18px 0 6px}
+.mstat{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:700;color:var(--text)}
+.mstat .ic{width:15px;height:15px;fill:var(--gold2)}
+.daily-card{display:flex;align-items:center;gap:12px;width:100%;max-width:420px;margin:14px auto 0;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px 14px;text-align:left;cursor:pointer}
+.daily-card:disabled{opacity:.55;cursor:default}
+.daily-card .ic{width:26px;height:26px;fill:var(--gold2);flex-shrink:0}
+.daily-card .dc-text{flex:1;display:flex;flex-direction:column;gap:2px}
+.daily-card .dc-text b{font-size:13.5px}
+.daily-card .dc-text small{color:var(--muted);font-size:11.5px}
+.daily-card .dc-state{font-size:12px;font-weight:700;color:var(--gold2);white-space:nowrap}
+.menu-nav{width:100%;max-width:420px;margin:20px auto 10px;display:flex;flex-direction:column;gap:10px}
+.btn.big{padding:15px;font-size:16px}
+.menu-nav-row{display:flex;gap:8px}
+.menu-nav-row .btn{flex:1}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:11px 18px;font-size:15px;font-weight:700;transition:.15s;text-decoration:none}
 .btn:hover{transform:translateY(-2px);border-color:var(--gold);color:var(--gold2)}
 .btn:active{transform:translateY(0)}
@@ -201,11 +237,56 @@ body.noads .ad-tag,body.noads .ad-txt{display:none}
   <symbol id="i-warn" viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21Zm12-3h-2v-2h2v2Zm0-4h-2v-4h2v4Z"/></symbol>
 </svg>
 
+<div id="bgpattern"></div>
 <canvas id="bgc"></canvas>
+<div id="vignette"></div>
 
 <div id="app">
-  <section id="scr-home" class="screen active">
+  <section id="scr-menu" class="screen active">
     <header class="topbar">
+      <div class="userchip" id="userChipMenu">
+        <span class="ava">?</span>
+        <div><b data-i18n="guest">Гость</b><small data-i18n="demoMode">демо-режим</small></div>
+      </div>
+      <div class="wallet">
+        <button class="icon-btn" id="btnSetMenu"><svg class="ic"><use href="#i-gear"/></svg></button>
+      </div>
+    </header>
+    <div class="hero menu-hero">
+      <svg class="menu-logo" viewBox="0 0 24 24"><use href="#i-gem"/></svg>
+      <h1 data-i18n="appTitle">КРИСТАЛЛИУМ</h1>
+      <p data-i18n="appTag">алхимическая головоломка</p>
+    </div>
+    <p class="menu-lore" data-i18n="loreText">
+      Легенда гласит: где-то за гранью видимого мира алхимики древности
+      заточили саму суть стихий в кристаллы. Соединяйте их, разгадывайте
+      секреты трансмутации и пройдите путь от ученика до Владыки стихий.
+    </p>
+    <div class="menu-stats">
+      <div class="mstat"><svg class="ic"><use href="#i-star"/></svg><span id="menuStars">0</span> / 900</div>
+      <div class="mstat"><svg class="ic"><use href="#i-gem"/></svg><span id="menuLevel">1</span> / 300</div>
+      <div class="mstat"><svg class="ic"><use href="#i-coin"/></svg><span id="menuCoins">0</span></div>
+    </div>
+    <button class="daily-card" id="btnDaily">
+      <svg class="ic"><use href="#i-gift"/></svg>
+      <div class="dc-text">
+        <b data-i18n="dailyBonus">Ежедневный бонус</b>
+        <small id="dailyDesc"></small>
+      </div>
+      <span class="dc-state" id="dailyState"></span>
+    </button>
+    <div class="menu-nav">
+      <button class="btn primary big" id="btnPlayMenu"><svg class="ic"><use href="#i-play"/></svg><span data-i18n="play">Играть</span></button>
+      <div class="menu-nav-row">
+        <button class="btn small" id="btnShopMenu"><svg class="ic"><use href="#i-cart"/></svg><span data-i18n="shop">Магазин</span></button>
+        <button class="btn small" id="btnSetMenu2"><svg class="ic"><use href="#i-gear"/></svg><span data-i18n="settings">Настройки</span></button>
+      </div>
+    </div>
+  </section>
+
+  <section id="scr-home" class="screen">
+    <header class="topbar">
+      <button class="icon-btn" id="btnBackMenu"><svg class="ic" style="transform:rotate(180deg)"><use href="#i-next"/></svg></button>
       <div class="userchip" id="userChip">
         <span class="ava">?</span>
         <div><b data-i18n="guest">Гость</b><small data-i18n="demoMode">демо-режим</small></div>
@@ -438,6 +519,7 @@ var TGW=(function(){
           var open=document.querySelector('.overlay.open');
           if(open)open.classList.remove('open');
           else if(G.scr==='game')showScreen('home');
+          else if(G.scr==='home')showScreen('menu');
         });
         api.BackButton.show();
       }
@@ -693,7 +775,14 @@ var I18N={
   unlockCutDesc:{ru:'Новая цель: создай спец-камни',en:'New goal: create special gems',uk:'Нова ціль: створи спец-камені'},
   unlockLordName:{ru:'Владыка стихий',en:'Lord of elements',uk:'Володар стихій'},
   unlockLordDesc:{ru:'Цель «все цвета» и двойные цели',en:'"All colors" and double goals',uk:'Ціль «всі кольори» та подвійні цілі'},
-  level:{ru:'Уровень',en:'Level',uk:'Рівень'}
+  level:{ru:'Уровень',en:'Level',uk:'Рівень'},
+  loreText:{ru:'Легенда гласит: где-то за гранью видимого мира алхимики древности заточили саму суть стихий в кристаллы. Соединяйте их, разгадывайте секреты трансмутации и пройдите путь от ученика до Владыки стихий.',
+    en:'Legend has it that beyond the visible world, ancient alchemists sealed the very essence of the elements into crystals. Match them, uncover the secrets of transmutation, and rise from apprentice to Lord of the Elements.',
+    uk:'Легенда каже: десь за межею видимого світу давні алхіміки закували саму суть стихій у кристали. Поєднуйте їх, розгадуйте секрети трансмутації та пройдіть шлях від учня до Володаря стихій.'},
+  dailyBonus:{ru:'Ежедневный бонус',en:'Daily bonus',uk:'Щоденний бонус'},
+  dailyBonusDesc:{ru:'Серия {streak} дн. · следующая награда +{n} золота',en:'{streak}-day streak · next reward +{n} gold',uk:'Серія {streak} дн. · наступна нагорода +{n} золота'},
+  dailyBonusClaimed:{ru:'Получено ✓',en:'Claimed ✓',uk:'Отримано ✓'},
+  toastDailyClaimed:{ru:'Ежедневный бонус: +{n} золота',en:'Daily bonus: +{n} gold',uk:'Щоденний бонус: +{n} золота'}
 };
 function tf(key,vars){
   var lang=(typeof db!=='undefined'&&db.lang)?db.lang:'ru';
@@ -744,6 +833,7 @@ function applyI18n(){
     if(typeof renderMap==='function'&&G.scr==='home')renderMap(true);
     if(typeof updateWalletLabels==='function')updateWalletLabels();
     if(typeof updEnergyChip==='function')updEnergyChip();
+    if(typeof updateDailyUI==='function')updateDailyUI();
   }catch(e){}
 }
 
@@ -787,7 +877,8 @@ var Crypt={
 
 /* ═══ СОХРАНЕНИЕ ═══ */
 var db={unlocked:1,stars:{},seen:{},coins:150,energy:10,energyTs:0,noAds:false,
-  boost:{hammer:2,shuffle:2,moves:1},sound:true,vibro:true,addr:null,lang:null};
+  boost:{hammer:2,shuffle:2,moves:1},sound:true,vibro:true,addr:null,lang:null,
+  dailyLast:null,dailyStreak:0};
 var MAX_ENERGY=10,ENERGY_REGEN=180000;
 var AUTH={uid:'guest',user:null,session:false};
 var Save={
@@ -1203,7 +1294,7 @@ function goalText(L){
 
 /* ═══ СОСТОЯНИЕ ИГРЫ ═══ */
 var ESS='ess';
-var G={scr:'home',lv:0,level:null,cols:8,rows:8,cell:64,
+var G={scr:'menu',lv:0,level:null,cols:8,rows:8,cell:64,
   grid:[],ice:[],state:'idle',paused:false,
   score:0,dispScore:0,moves:0,collected:{},iceBroken:0,
   essenceDone:0,essenceNeed:0,essenceSpawned:0,specialsMade:0,
@@ -2132,14 +2223,51 @@ function drawBoard(dt,now){
   x.restore();
 }
 
-var bgc=$('#bgc'),bgx=bgc.getContext('2d'),dust=[];
+var bgc=$('#bgc'),bgx=bgc.getContext('2d'),dust=[],orbs=[],glyphs=[];
 function resizeBg(){
   bgc.width=innerWidth;bgc.height=innerHeight;
   dust=[];
   for(var i=0;i<40;i++)dust.push({x:rnd(0,innerWidth),y:rnd(0,innerHeight),r:rnd(.5,2),sp:rnd(5,20),ph:rnd(0,6.28),a:rnd(.08,.4)});
+  orbs=[
+    {x:innerWidth*.15,y:innerHeight*.1,r:Math.max(innerWidth,innerHeight)*.32,c:'176,92,242',sp:.00007,ph:0},
+    {x:innerWidth*.9,y:innerHeight*.18,r:Math.max(innerWidth,innerHeight)*.26,c:'242,193,78',sp:.00009,ph:2.1},
+    {x:innerWidth*.5,y:innerHeight*1.02,r:Math.max(innerWidth,innerHeight)*.38,c:'63,116,255',sp:.00006,ph:4.2}
+  ];
+  glyphs=[
+    {x:innerWidth*.08,y:innerHeight*.14,r:70,rot:0,sp:.00004,sides:6},
+    {x:innerWidth*.94,y:innerHeight*.88,r:96,rot:1.4,sp:-.00003,sides:6}
+  ];
+}
+function drawPoly(cx,cy,r,rot,sides){
+  bgx.beginPath();
+  for(var i=0;i<=sides;i++){
+    var a=rot+i/sides*Math.PI*2;
+    var x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;
+    if(i===0)bgx.moveTo(x,y);else bgx.lineTo(x,y);
+  }
+  bgx.stroke();
 }
 function drawBg(dt,now){
   bgx.clearRect(0,0,bgc.width,bgc.height);
+  /* мягкие цветные ауры — медленно дышат */
+  for(var o=0;o<orbs.length;o++){
+    var ob=orbs[o];
+    var pulse=.75+.25*Math.sin(now*ob.sp+ob.ph);
+    var g=bgx.createRadialGradient(ob.x,ob.y,0,ob.x,ob.y,ob.r*pulse);
+    g.addColorStop(0,'rgba('+ob.c+',.16)');
+    g.addColorStop(1,'rgba('+ob.c+',0)');
+    bgx.fillStyle=g;
+    bgx.fillRect(ob.x-ob.r,ob.y-ob.r,ob.r*2,ob.r*2);
+  }
+  /* едва заметные алхимические знаки — крутятся очень медленно */
+  bgx.lineWidth=1;bgx.strokeStyle='rgba(216,180,90,.10)';
+  for(var i=0;i<glyphs.length;i++){
+    var gl=glyphs[i];
+    gl.rot+=gl.sp*dt*1000;
+    drawPoly(gl.x,gl.y,gl.r,gl.rot,gl.sides);
+    drawPoly(gl.x,gl.y,gl.r*.62,-gl.rot*1.3,gl.sides);
+  }
+  /* золотая пыль */
   for(var i=0;i<dust.length;i++){
     var p=dust[i];
     p.y-=p.sp*dt;p.x+=Math.sin(now*.0004+p.ph)*10*dt;
@@ -2349,10 +2477,64 @@ function renderUser(){
   chip.innerHTML=avaHTML+'<div><b>'+(u?(u.first_name||t('player')):t('guest'))+'</b><small>'+
     (AUTH.session?('Telegram · '+t('dConnected2')):t('demoMode'))+'</small></div>';
 }
+/* ═══ ЕЖЕДНЕВНЫЙ БОНУС ═══
+   Простая, но настоящая механика (не связанная с рекламой): раз в
+   календарный день игрок может забрать монеты. Streak (серия дней
+   подряд) увеличивает награду, максимум ×7. Если пропустил день —
+   серия сбрасывается. */
+var DAILY_BASE=30,DAILY_STEP=10,DAILY_MAX_STREAK=7;
+function todayStr(){
+  var d=new Date();
+  return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();
+}
+function dailyReward(streak){return DAILY_BASE+DAILY_STEP*(Math.min(streak,DAILY_MAX_STREAK)-1);}
+function dailyAvailable(){return db.dailyLast!==todayStr();}
+function claimDaily(){
+  if(!dailyAvailable())return;
+  var y=new Date();y.setDate(y.getDate()-1);
+  var yStr=y.getFullYear()+'-'+(y.getMonth()+1)+'-'+y.getDate();
+  db.dailyStreak=(db.dailyLast===yStr)?Math.min(db.dailyStreak+1,DAILY_MAX_STREAK):1;
+  var reward=dailyReward(db.dailyStreak);
+  db.coins+=reward;db.dailyLast=todayStr();DBSaved();
+  SND.play('coin');vibro('ok');
+  Analytics.track('daily_bonus_claim',{streak:db.dailyStreak,reward:reward});
+  toast(tf('toastDailyClaimed',{n:reward}));
+  updateDailyUI();updateMenuStats();
+}
+function updateDailyUI(){
+  var btn=$('#btnDaily'),state=$('#dailyState'),desc=$('#dailyDesc');
+  if(!btn)return;
+  var avail=dailyAvailable();
+  var nextStreak=avail?((db.dailyLast&&isYesterday(db.dailyLast))?Math.min(db.dailyStreak+1,DAILY_MAX_STREAK):1):db.dailyStreak;
+  desc.textContent=tf('dailyBonusDesc',{n:dailyReward(nextStreak),streak:nextStreak});
+  btn.disabled=!avail;
+  state.textContent=avail?('+'+dailyReward(nextStreak)):t('dailyBonusClaimed');
+}
+function isYesterday(str){
+  var y=new Date();y.setDate(y.getDate()-1);
+  return str===(y.getFullYear()+'-'+(y.getMonth()+1)+'-'+y.getDate());
+}
+function updateMenuStats(){
+  var st=0;Object.keys(db.stars).forEach(function(k){st+=db.stars[k]||0;});
+  var ms=$('#menuStars');if(ms)ms.textContent=st;
+  var ml=$('#menuLevel');if(ml)ml.textContent=Math.min(db.unlocked,TOTAL_LEVELS);
+  var mc=$('#menuCoins');if(mc)mc.textContent=db.coins;
+}
+function renderMenuUser(){
+  var chip=$('#userChipMenu');if(!chip)return;
+  var u=AUTH.user;
+  var avaHTML=(u&&u.photo_url)?'<img class="ava" src="'+u.photo_url+'">':'<span class="ava">'+((u&&u.first_name&&u.first_name[0])||'?')+'</span>';
+  chip.innerHTML=avaHTML+'<div><b>'+(u?(u.first_name||t('player')):t('guest'))+'</b><small>'+
+    (AUTH.session?('Telegram · '+t('dConnected2')):t('demoMode'))+'</small></div>';
+}
+
 function showScreen(name){
   G.scr=name;
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   $('#scr-'+name).classList.add('active');
+  if(name==='menu'){
+    renderMenuUser();updateMenuStats();updateDailyUI();
+  }
   if(name==='home'){
     renderMap(true);updateEnergyUI();renderUser();
     setTimeout(function(){
@@ -2548,6 +2730,7 @@ function updPay(){
   $('#optUsdt').classList.toggle('sel',payMode==='usdt');
   $('#optStars').classList.toggle('sel',isStars);
   $('#optUsdt').style.display=CONFIG.ENABLE_USDT?'':'none';
+  $('#optStars').style.display=CONFIG.STARS_INVOICE?'':'none';
   $('#btnCheckPaid').textContent=isStars?t('iPaidStars'):t('iPaidTonUsdt');
 }
 function openPay(){payMode='ton';updPay();openModal('mPay');Analytics.track('paywall_open',{});}
@@ -2768,9 +2951,22 @@ function bindUI(){
     openShop();
   };
   $('#btnShopHome').onclick=$('#btnShop').onclick;
+  $('#btnShopMenu').onclick=$('#btnShop').onclick;
   $('#btnPlayHome').onclick=function(){
     SND.play('click');
     openPre(Math.min(db.unlocked,TOTAL_LEVELS)-1);
+  };
+  $('#btnPlayMenu').onclick=function(){
+    SND.play('click');
+    showScreen('home');
+  };
+  $('#btnBackMenu').onclick=function(){
+    SND.play('click');
+    showScreen('menu');
+  };
+  $('#btnDaily').onclick=function(){
+    SND.play('click');
+    claimDaily();
   };
   $('#btnEnergy').onclick=function(){
     SND.play('click');
@@ -2803,6 +2999,7 @@ function bindUI(){
     updateWalletLabels();
     openModal('mSet');
   };
+  $('#btnSetMenu').onclick=$('#btnSetMenu2').onclick=$('#btnSet').onclick;
   $('#langBtn').onclick=function(){
     SND.play('click');
     var i=LANGS.indexOf(db.lang);
@@ -3010,6 +3207,9 @@ async function boot(){
     updateWalletLabels();
     applyNoAds();
     renderUser();
+    renderMenuUser();
+    updateMenuStats();
+    updateDailyUI();
     applyI18n();
     renderMap(true);
     Analytics.track('session_start',{isTG:TGW.isTG,lang:db.lang,unlocked:db.unlocked,coins:db.coins,noAds:db.noAds});
