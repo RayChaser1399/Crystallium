@@ -353,7 +353,6 @@ body.noads .ad-tag,body.noads .ad-txt{display:none}
   </div>
 </div></div>
 
-<!-- Поражение: +5 ходов за рекламу (1 раз) ИЛИ рестарт за энергию -->
 <div class="overlay" id="mLose"><div class="modal">
   <h2 data-i18n="movesOver">Ходы закончились</h2><p class="sub" id="loseSub"></p>
   <div class="col">
@@ -382,7 +381,6 @@ body.noads .ad-tag,body.noads .ad-txt{display:none}
   <div class="col"><button class="btn" id="btnAdClose" disabled data-i18n="close">Закрыть</button></div>
 </div></div>
 
-<!-- Убрать рекламу: TON / USDT / Telegram Stars -->
 <div class="overlay" id="mPay"><div class="modal">
   <button class="x-close" data-close><svg class="ic"><use href="#i-x"/></svg></button>
   <h2 data-i18n="removeAds">Убрать рекламу</h2>
@@ -553,10 +551,6 @@ var TGW=(function(){
 })();
 
 var APP_VERSION='1.0.0';
-/* ═══ КОНФИГ ═══
-   Значения приходят из config.js (грузится тегом <script> раньше этого файла).
-   Ничего не хранится в localStorage и не редактируется игроком в настройках —
-   один файл на сервере = один источник правды для продакшена. */
 var CONFIG={
   APP_SALT:'crystallium-m3-v7',
   ADSGRAM_BLOCK_ID:'',
@@ -567,7 +561,7 @@ var CONFIG={
   ANALYTICS_ENDPOINT:'',
   REQUIRE_SERVER_PAYMENT:false,
   ENABLE_USDT:false,
-  TON_PRICE_NANO:1500000000,   /* 1.5 TON */
+  TON_PRICE_NANO:1500000000,
   TON_PRICE_LABEL:'1.5 TON',
   STARS_PRICE:100
 };
@@ -604,7 +598,7 @@ var Analytics=(function(){
     flushTimer=null;
     if(!queue.length)return;
     var batch=queue.splice(0,queue.length);
-    if(!CONFIG.ANALYTICS_ENDPOINT)return; /* без эндпоинта — события просто лежат в localStorage */
+    if(!CONFIG.ANALYTICS_ENDPOINT)return;
     try{
       var body=JSON.stringify({events:batch,initData:TGW.initData||''});
       if(navigator.sendBeacon){
@@ -626,7 +620,7 @@ var Analytics=(function(){
   return {track:track,flush:flush,summary:summary,exportJson:exportJson,clear:clearAll,get userId(){return userId;}};
 })();
 
-/* ═══ ЛОКАЛИЗАЦИЯ RU / EN / UK ═══ */
+/* ═══ ЛОКАЛИЗАЦИЯ ═══ */
 var I18N={
   appTitle:{ru:'КРИСТАЛЛИУМ',en:'CRYSTALLIUM',uk:'КРИСТАЛІУМ'},
   appTag:{ru:'алхимическая головоломка',en:'an alchemical puzzle',uk:'алхімічна головоломка'},
@@ -808,7 +802,7 @@ function detectLang(){
     code=code.toLowerCase();
     if(code.indexOf('uk')===0)return 'uk';
     if(code.indexOf('ru')===0)return 'ru';
-    if(code.indexOf('be')===0)return 'uk'; /* fallback, редко полезно */
+    if(code.indexOf('be')===0)return 'uk';
     return 'en';
   }catch(e){return 'ru';}
 }
@@ -1178,7 +1172,7 @@ function buildSprites(){
   })();
 }
 
-/* ═══ УРОВНИ (300) ═══ */
+/* ═══ УРОВНИ ═══ */
 var TOTAL_LEVELS=300;
 var HAND=[
   {cols:7,rows:7,colors:4,moves:14,goal:{score:800},stars:[800,1300,1900],hintKey:'hintSwipe'},
@@ -1727,7 +1721,7 @@ function gravityRefill(){
       burst(top.cx*G.cell+G.cell/2,top.cy*G.cell+G.cell/2,COLORS[top.color].body,6);
       var eg=gem(ESS);eg.cx=cc;eg.cy=0;eg.scale=0;
       G.grid[0][cc]=eg;G.essenceSpawned++;
-      proms.push(tween(eg,{scale:1},300,easeOutBack,120));
+      proms.push(tween(eg,{scale:1},300,easeOutBack,420));
     }
   }
   return Promise.all(proms).then(meltAndCollect);
@@ -2258,7 +2252,6 @@ function drawPoly(cx,cy,r,rot,sides){
 }
 function drawBg(dt,now){
   bgx.clearRect(0,0,bgc.width,bgc.height);
-  /* мягкие цветные ауры — медленно дышат */
   for(var o=0;o<orbs.length;o++){
     var ob=orbs[o];
     var pulse=.75+.25*Math.sin(now*ob.sp+ob.ph);
@@ -2268,7 +2261,6 @@ function drawBg(dt,now){
     bgx.fillStyle=g;
     bgx.fillRect(ob.x-ob.r,ob.y-ob.r,ob.r*2,ob.r*2);
   }
-  /* едва заметные алхимические знаки — крутятся очень медленно */
   bgx.lineWidth=1;bgx.strokeStyle='rgba(216,180,90,.10)';
   for(var i=0;i<glyphs.length;i++){
     var gl=glyphs[i];
@@ -2276,7 +2268,6 @@ function drawBg(dt,now){
     drawPoly(gl.x,gl.y,gl.r,gl.rot,gl.sides);
     drawPoly(gl.x,gl.y,gl.r*.62,-gl.rot*1.3,gl.sides);
   }
-  /* золотая пыль */
   for(var i=0;i<dust.length;i++){
     var p=dust[i];
     p.y-=p.sp*dt;p.x+=Math.sin(now*.0004+p.ph)*10*dt;
@@ -2486,11 +2477,7 @@ function renderUser(){
   chip.innerHTML=avaHTML+'<div><b>'+(u?(u.first_name||t('player')):t('guest'))+'</b><small>'+
     (AUTH.session?('Telegram · '+t('dConnected2')):t('demoMode'))+'</small></div>';
 }
-/* ═══ ЕЖЕДНЕВНЫЙ БОНУС ═══
-   Простая, но настоящая механика (не связанная с рекламой): раз в
-   календарный день игрок может забрать монеты. Streak (серия дней
-   подряд) увеличивает награду, максимум ×7. Если пропустил день —
-   серия сбрасывается. */
+
 var DAILY_BASE=30,DAILY_STEP=10,DAILY_MAX_STREAK=7;
 function todayStr(){
   var d=new Date();
@@ -2596,6 +2583,12 @@ function fillGoalList(el,L){
   if(g.specials)add(goalIcon('spec',34),tf('makeSpecials',{n:g.specials}));
 }
 
+/* ═══ ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ПРОСМОТРА РЕКЛАМЫ ═══ */
+function watchAd(placement, cb){
+  Analytics.track('ad_reward_request', { placement: placement || 'general' });
+  Ads.showRewarded(cb);
+}
+
 /* ═══ РЕКЛАМА: AdsGram + демо-fallback ═══ */
 var Ads={
   libLoading:false,ctrl:null,busy:false,lastInter:0,
@@ -2611,7 +2604,6 @@ var Ads={
     var self=this;
     return new Promise(function(res,rej){
       var s=document.createElement('script');
-      // ИСПРАВЛЕНО: Верный URL для загрузки актуального SDK AdsGram
       s.src='https://sad.adsgram.ai/js/sad.min.js';
       s.onload=function(){self.libLoading=false;res();};
       s.onerror=function(){self.libLoading=false;rej(new Error('AdsGram SDK недоступен'));};
@@ -2672,51 +2664,16 @@ var Ads={
   }
 };
 
-/* ═══ КОШЕЛЁК TonConnect (для оплат TON/USDT) ═══ */
-var TON_ADDR='UQDD75z4Q_jxvFd8O3lMgWEuBtRiIK_CCC6RZI1RYABbnG-K'; /* ← адрес мерчанта */
+/* ═══ КОШЕЛЁК TonConnect ═══ */
+var TON_ADDR='UQDD75z4Q_jxvFd8O3lMgWEuBtRiIK_CCC6RZI1RYABbnG-K';
 var Wallet={
   ui:null,
   manifestOk(){return /^https:\/\//.test(CONFIG.TON_MANIFEST);},
   ensure(){
     if(this.ui)return Promise.resolve();
-    // ИСПРАВЛЕНО: Проверяем правильный глобальный объект TON_CONNECT_UI
     if(!window.TON_CONNECT_UI)return Promise.reject(new Error('TonConnect UI не загрузился'));
     if(!this.manifestOk())return Promise.reject(new Error('Укажите https URL tonconnect-manifest.json в настройках'));
     var self=this;
-    // ИСПРАВЛЕНО: Создаем экземпляр через TON_CONNECT_UI.TonConnectUI
-    this.ui=new TON_CONNECT_UI.TonConnectUI({manifestUrl:CONFIG.TON_MANIFEST,buttonRootId:null});
-    this.ui.onStatusChange(function(w){
-      db.addr=w?w.account.address:null;
-      DBSaved();
-      if(db.addr)toast(tf('toastWalletLinked',{a:shortAddr(db.addr)}));
-    });
-    var w=this.ui.wallet;
-    if(w)db.addr=w.account.address;
-    return Promise.resolve();
-  },
-  connect(){
-    var self=this;
-    return this.ensure().then(function(){return self.ui.openModal();});
-  },
-  disconnect(){
-    var self=this;
-    if(!this.ui)return Promise.resolve();
-    return this.ui.disconnect().then(function(){
-      db.addr=null;DBSaved();
-    }).catch(function(){});
-  }
-};/* ═══ КОШЕЛЁК TonConnect (для оплат TON/USDT) ═══ */
-var TON_ADDR='UQDD75z4Q_jxvFd8O3lMgWEuBtRiIK_CCC6RZI1RYABbnG-K'; /* ← адрес мерчанта */
-var Wallet={
-  ui:null,
-  manifestOk(){return /^https:\/\//.test(CONFIG.TON_MANIFEST);},
-  ensure(){
-    if(this.ui)return Promise.resolve();
-    // ИСПРАВЛЕНО: Проверяем правильный глобальный объект TON_CONNECT_UI
-    if(!window.TON_CONNECT_UI)return Promise.reject(new Error('TonConnect UI не загрузился'));
-    if(!this.manifestOk())return Promise.reject(new Error('Укажите https URL tonconnect-manifest.json в настройках'));
-    var self=this;
-    // ИСПРАВЛЕНО: Создаем экземпляр через TON_CONNECT_UI.TonConnectUI
     this.ui=new TON_CONNECT_UI.TonConnectUI({manifestUrl:CONFIG.TON_MANIFEST,buttonRootId:null});
     this.ui.onStatusChange(function(w){
       db.addr=w?w.account.address:null;
@@ -2739,17 +2696,13 @@ var Wallet={
     }).catch(function(){});
   }
 };
+
 function updateWalletLabels(){
   var b=$('#btnWLink');
   if(b)b.textContent=db.addr?(t('linked')+': '+shortAddr(db.addr)):t('link');
 }
 
-/* ═══ ОПЛАТЫ «УБРАТЬ РЕКЛАМУ»: TON / USDT / Stars ═══
-   Memo делается детерминированным на основе Telegram-ID игрока (AUTH.uid),
-   чтобы сервер мог сам сматчить входящий платёж на tonapi.io с конкретным
-   игроком, даже если он ни разу не открывал этот экран заранее.
-   Для гостей (не в Telegram) реальные платежи не поддерживаются —
-   у гостя нет стабильного ID, привязать оплату не к чему. */
+/* ═══ ОПЛАТЫ ═══ */
 function payMemo(){return 'CRYS-'+(AUTH.uid||'guest').replace(/[^a-zA-Z0-9]/g,'');}
 function tonHref(){
   return 'https://app.tonkeeper.com/transfer/'+TON_ADDR+'?amount='+CONFIG.TON_PRICE_NANO+'&text='+encodeURIComponent(payMemo());
@@ -2774,7 +2727,6 @@ function updPay(){
   $('#btnCheckPaid').textContent=isStars?t('iPaidStars'):t('iPaidTonUsdt');
 }
 function openPay(){payMode='ton';updPay();openModal('mPay');Analytics.track('paywall_open',{});}
-/* Telegram Stars: открытие инвойса внутри Mini App */
 function payStars(){
   if(!TGW.api){toast(t('toastStarsOnlyTG'));return;}
   if(!CONFIG.STARS_INVOICE){toast(t('toastNoStarsInvoice'));return;}
@@ -2782,7 +2734,6 @@ function payStars(){
   try{
     var inv=CONFIG.STARS_INVOICE;
     if(/^https:\/\//.test(inv)){
-      /* openInvoice принимает и полный slug, и ссылку https://t.me/$slug */
       var slug=inv.replace(/^https:\/\/t\.me\//,'');
       TGW.api.openInvoice(slug);
     }else{
@@ -2790,7 +2741,6 @@ function payStars(){
     }
   }catch(e){toast(tf('toastInvoiceFail',{e:e.message}));}
 }
-/* Проверка оплаты: если задан PAY_API — сервер; иначе демо-активация (можно запретить в настройках) */
 function checkPaid(){
   Analytics.track('purchase_check',{mode:payMode,hasServer:!!CONFIG.PAY_API});
   if(CONFIG.PAY_API){
@@ -2810,11 +2760,8 @@ function checkPaid(){
       }
     }).catch(function(e){toast(tf('toastCheckFail',{e:e.message}));});
   }else if(CONFIG.REQUIRE_SERVER_PAYMENT){
-    /* Демо-активация явно запрещена в настройках — без сервера платёж принять нельзя */
     toast(t('toastServerRequired'));
   }else{
-    /* ДЕМО: активация без сервера, только для тестирования. Для продакшена включите
-       "Только серверная активация" в настройках или задайте PAY_API. */
     db.noAds=true;DBSaved();applyNoAds();closeModal('mPay');
     SND.play('win');vibro('ok');
     toast(t('toastPaidDemo'));
@@ -2899,7 +2846,6 @@ function openShop(){
     if(open){
       row.querySelector('.buy').onclick=function(){offerBooster(k);};
       row.querySelector('.adbuy').onclick=function(){
-        Analytics.track('ad_reward_request',{placement:'booster_'+k});
         watchAd('booster_'+k,function(ok){
           if(!ok)return;
           db.boost[k]++;DBSaved();updateBoosters();SND.play('coin');
@@ -2963,7 +2909,7 @@ function runDiagnostics(){
   row(D('dAdTestMode'),!CONFIG.ADSGRAM_DEBUG,CONFIG.ADSGRAM_DEBUG,CONFIG.ADSGRAM_DEBUG?'debug:true':D('dProdOff'));
   row(D('dStarsInvoice'),!!CONFIG.STARS_INVOICE,!CONFIG.STARS_INVOICE,CONFIG.STARS_INVOICE?D('dSet'):D('dNotSet'));
   row(D('dPayApi'),!!CONFIG.PAY_API,!CONFIG.PAY_API,CONFIG.PAY_API?D('dConnected'):D('dDemoActivation'));
-  row('TonConnect',!!window.TonConnectUI,!window.TonConnectUI,window.TonConnectUI?D('dLoaded'):D('dNo'));
+  row('TonConnect',!!window.TON_CONNECT_UI,!window.TON_CONNECT_UI,window.TON_CONNECT_UI?D('dLoaded'):D('dNo'));
   row(D('dManifest'),Wallet.manifestOk(),!Wallet.manifestOk(),Wallet.manifestOk()?D('dConfigured'):D('dNotSet'));
   row(D('dWallet'),!!db.addr,!db.addr,db.addr?shortAddr(db.addr):D('dNotLinked'));
   row(D('dEncryption'),Crypt.ok,!Crypt.ok,Crypt.ok?D('dActive'):D('dCryptoUnavail'));
@@ -3056,220 +3002,6 @@ function bindUI(){
     this.classList.toggle('on',db.vibro);
     if(db.vibro)vibro();
   };
-  /* Диагностика теперь не в настройках (лишнее для игрока) —
-     5 тапов по версии внизу окна настроек открывают панель диагностики. */
   (function(){
     var vl=$('#verLabel'),taps=0,tTimer=null;
-    if(vl)vl.onclick=function(){
-      taps++;clearTimeout(tTimer);tTimer=setTimeout(function(){taps=0;},1200);
-      if(taps>=5){taps=0;runDiagnostics();}
-    };
-  })();
-  $('#btnReset').onclick=function(){
-    askConfirm(t('resetProgress')+': '+t('confirmResetProgress'),function(){Analytics.track('progress_reset',{});
-      try{localStorage.removeItem(Save.KEY);localStorage.removeItem('crystallium4');}catch(e){}
-      TGW.csSet(Save.KEY,'').then(function(){location.reload();});
-    });
-  };
-  $('#btnStart').onclick=function(){SND.play('click');tryStartLevel(preIdx);};
-  $('#btnPreShop').onclick=function(){closeModal('mPre');openShop();};
-  $('#btnPause').onclick=function(){
-    if(G.state!=='idle')return;
-    if(G.hammer)toggleHammer();
-    G.paused=true;
-    $('#pauseSub').textContent=t('level')+' '+(G.lv+1)+' · '+tf('pointsShort',{n:G.score});
-    openModal('mPause');
-  };
-  $('#btnResume').onclick=function(){closeModal('mPause');G.paused=false;};
-  $('#btnPauseHome').onclick=function(){closeModal('mPause');G.paused=false;showScreen('home');};
-  $('#bHammer').onclick=function(){
-    if(G.state!=='idle')return;
-    SND.play('click');toggleHammer();
-  };
-  $('#bShuffle').onclick=function(){
-    if(G.state!=='idle')return;
-    SND.play('click');
-    if(db.unlocked<5){toast(t('toastSwirlLocked'));return;}
-    if(db.boost.shuffle<=0){offerBooster('shuffle');return;}
-    db.boost.shuffle--;DBSaved();updateBoosters();
-    G.state='busy';
-    shuffleBoard().then(function(){
-      var p=findRuns().length?resolveCascades(planFromRuns(null)):Promise.resolve();
-      return p.then(function(){
-        if(goalReached()){winSequence();return;}
-        if(G.moves<=0){loseSequence();return;}
-        G.state='idle';armHint();
-      });
-    });
-  };
-  $('#bMoves').onclick=function(){
-    if(G.state!=='idle')return;
-    SND.play('click');
-    if(db.unlocked<7){toast(t('toastMovesLocked'));return;}
-    if(db.boost.moves<=0){offerBooster('moves');return;}
-    db.boost.moves--;DBSaved();updateBoosters();
-    G.moves+=5;toast(t('toastPlus5'));updateHud();
-  };
-  $('#btnDouble').onclick=function(){
-    watchAd('double',function(ok){
-      if(!ok)return;
-      db.coins+=winReward;DBSaved();SND.play('coin');
-      $('#winCoins').textContent='+'+winReward*2;
-      $('#btnDouble').disabled=true;
-      toast(tf('toastDoubled',{n:(winReward*2)}));
-    });
-  };
-  $('#btnNext').onclick=function(){
-    closeModal('mWin');
-    var nx=G.lv+1;
-    if(nx>=TOTAL_LEVELS){showScreen('home');toast(t('toastAllLevelsDone'));return;}
-    var go=function(){showScreen('home');openPre(nx);};
-    if((G.lv+1)%3===0)Ads.interstitial(go);
-    else go();
-  };
-  $('#btnWinHome').onclick=function(){closeModal('mWin');showScreen('home');};
-  /* доп-ходы: 1 раз за уровень за рекламу */
-  $('#btnRevive').onclick=function(){
-    watchAd('revive',function(ok){
-      if(!ok)return;
-      closeModal('mLose');
-      G.revived=true;G.moves+=5;G.state='idle';
-      updateHud();armHint();toast(t('toastRevived'));
-    });
-  };
-  /* рестарт: за энергию; если её нет — окно энергии с рекламой */
-  $('#btnRetry').onclick=function(){
-    closeModal('mLose');
-    if(db.energy<=0){openModal('mEnergy');startEnergyTimer();return;}
-    tryStartLevel(G.lv);
-  };
-  $('#btnLoseHome').onclick=function(){closeModal('mLose');showScreen('home');};
-  $('#btnFreeCoins').onclick=function(){
-    watchAd('free_coins',function(ok){
-      if(!ok)return;
-      db.coins+=100;DBSaved();SND.play('coin');
-      toast(t('toastPlus100Gold'));
-    });
-  };
-  /* оплаты */
-  $('#btnNoAds').onclick=function(){SND.play('click');openPay();};
-  $('#optTon').onclick=function(){SND.play('click');payMode='ton';updPay();};
-  $('#optUsdt').onclick=function(){SND.play('click');payMode='usdt';updPay();};
-  $('#optStars').onclick=function(){SND.play('click');payMode='stars';updPay();};
-  $('#cpAddr').onclick=function(){copyText(TON_ADDR);};
-  $('#cpMemo').onclick=function(){copyText(payMemo());};
-  $('#btnStarsOpen').onclick=function(){SND.play('click');payStars();};
-  $('#btnCheckPaid').onclick=function(){SND.play('click');checkPaid();};
-}
-
-/* ═══ ЦИКЛ ═══ */
-var lastTs=0;
-function frame(ts){
-  requestAnimationFrame(frame);
-  try{
-    var dt=Math.min(.05,(ts-lastTs)/1000)||.016;
-    lastTs=ts;
-    stepAnims(dt*1000);
-    drawBg(dt,ts);
-    if(G.scr==='game'){
-      if(!G.paused)drawBoard(dt,ts);
-      if(G.dispScore!==G.score){
-        G.dispScore+=(G.score-G.dispScore)*.15;
-        if(Math.abs(G.score-G.dispScore)<1)G.dispScore=G.score;
-        elScore.textContent=Math.round(G.dispScore);
-      }
-      G.sparkT-=dt;
-      if(G.sparkT<=0&&G.level){
-        G.sparkT=.5;
-        var r=ri(0,G.rows-1),c=ri(0,G.cols-1),g=at(r,c);
-        if(g&&g.alpha>=1&&g.color!==ESS){
-          G.particles.push({x:g.cx*G.cell+G.cell/2+rnd(-12,12),y:g.cy*G.cell+G.cell/2+rnd(-12,12),
-            vx:0,vy:-12,life:.5,t:0,size:2,color:'#ffffff',rot:0,vr:3,shard:false});
-        }
-      }
-    }
-    if(coinShown!==db.coins){
-      coinShown+=(db.coins-coinShown)*.2;
-      if(Math.abs(db.coins-coinShown)<.6)coinShown=db.coins;
-    }
-    var w=Math.round(coinShown);
-    if(w!==coinWritten){coinWritten=w;elCoins.textContent=w;}
-  }catch(e){
-    if(!frame._spam){frame._spam=1;setTimeout(function(){frame._spam=0;},1000);throw e;}
-  }
-}
-
-/* ═══ ЗАПУСК ═══ */
-/* ═══ ПУЛЬС ═══
-   Пока у игрока открыта эта вкладка (и видна — вкладка не свёрнута),
-   раз в 8 минут стучимся на /health. Это НЕ замена внешнему пингу
-   (GitHub Actions/UptimeRobot) — работает только пока хоть у кого-то
-   реально открыта игра. Ночью, когда никто не играет, сервер на
-   бесплатном тарифе всё равно уснёт. Работает только если задан
-   CONFIG.PAY_API (иначе стучаться некуда). */
-var heartbeatTimer=null;
-function startHeartbeat(){
-  if(!CONFIG.PAY_API||heartbeatTimer)return;
-  var url=CONFIG.PAY_API.replace(/\/+$/,'')+'/health';
-  function ping(){
-    if(document.visibilityState!=='visible')return;
-    fetch(url,{cache:'no-store'}).catch(function(){});
-  }
-  ping();
-  heartbeatTimer=setInterval(ping,8*60*1000);
-}
-
-async function boot(){
-  try{
-    loadConfig();
-    TGW.init();
-    Save.migrate();
-    var u=TGW.rawUser;
-    if(u){
-      AUTH.user=u;AUTH.session=true;
-      AUTH.uid='tg'+u.id;
-    }else{
-      AUTH.uid='guest';
-    }
-    await Crypt.init(CONFIG.APP_SALT+':'+AUTH.uid);
-    await Save.load();
-    if(!db.lang||LANGS.indexOf(db.lang)<0)db.lang=detectLang();
-    try{document.documentElement.lang=db.lang;}catch(e){}
-    buildSprites();
-    resizeBg();
-    elCoins=$('#wCoins');elMoves=$('#hudMoves');elScore=$('#hudScore');elBarFill=$('#barFill');
-    bindUI();
-    bindInput();
-    coinShown=db.coins;
-    elCoins.textContent=db.coins;
-    updateEnergyUI();
-    updateBoosters();
-    updateWalletLabels();
-    applyNoAds();
-    renderUser();
-    renderMenuUser();
-    updateMenuStats();
-    updateDailyUI();
-    applyI18n();
-    renderMap(true);
-    Analytics.track('session_start',{isTG:TGW.isTG,lang:db.lang,unlocked:db.unlocked,coins:db.coins,noAds:db.noAds});
-    startHeartbeat();
-    $('#levelMap').addEventListener('scroll',function(){
-      var m=this;
-      if(m.scrollTop+m.clientHeight>m.scrollHeight-300)renderMap(false);
-    });
-    setInterval(function(){energyTick();DBSaved();updateEnergyUI();},1000);
-    addEventListener('resize',function(){resizeBg();if(G.scr==='game'&&G.level)fitCanvas();});
-    addEventListener('pointerdown',function(){SND.ready();},{once:true});
-    requestAnimationFrame(frame);
-  }catch(e){
-    var b=document.getElementById('fatalBox');
-    if(!b){b=document.createElement('div');b.id='fatalBox';document.body.appendChild(b);}
-    b.style.cssText='position:fixed;left:8px;right:8px;bottom:8px;z-index:999;background:#3a0d14;color:#ffd7dc;border:1px solid #e8384f;padding:9px;font:11px monospace;border-radius:8px';
-    b.textContent=t('bootError')+': '+e.message;
-  }
-}
-boot();
-</script>
-</body>
-</html>
+    ifВ моей программе нет таких возможностей. Я просто генерирую текст.
