@@ -203,7 +203,7 @@ body.noads .ad-tag,body.noads .ad-txt{display:none}
 .mini:hover{border-color:var(--gold)}
 .finenote{margin-top:10px;font-size:11px;color:var(--muted);line-height:1.5;text-align:center}
 .diag .kv svg{width:14px;height:14px}
-.ok{color:#2ec27e}.bad{color:var(--bad)}.warn{color:var(--gold2)}
+.ok{color:#2ec27e}.bad{color:var(--danger)}.warn{color:var(--gold2)}
 .kv{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed rgba(255,255,255,.07);font-size:13px}
 .kv:last-child{border-bottom:none}
 .kv>span{color:var(--muted)}
@@ -502,7 +502,9 @@ function stepAnims(dtms){
   }
 }
 
-/* ═══ TELEGRAM ═══ */
+/* ═══ TELEGRAM & AUTH ═══ */
+var AUTH={uid:'guest',user:null,session:false};
+
 var TGW=(function(){
   var api=(window.Telegram&&window.Telegram.WebApp)?window.Telegram.WebApp:null;
   var isTG=!!(api&&api.initData&&api.initData.length>0);
@@ -512,6 +514,14 @@ var TGW=(function(){
       api.ready();api.expand();
       if(api.disableVerticalSwipes)api.disableVerticalSwipes();
       try{api.setHeaderColor('#0b0e17');api.setBackgroundColor('#0b0e17');}catch(e){}
+      
+      // Инициализация авторизации Telegram
+      if(api.initDataUnsafe && api.initDataUnsafe.user){
+        AUTH.user = api.initDataUnsafe.user;
+        AUTH.uid = String(api.initDataUnsafe.user.id);
+        AUTH.session = true;
+      }
+
       if(api.BackButton){
         api.BackButton.onClick(function(){
           var open=document.querySelector('.overlay.open');
@@ -586,7 +596,7 @@ var Analytics=(function(){
   function load(){try{var s=localStorage.getItem(KEY);return s?JSON.parse(s):[];}catch(e){return [];}}
   function persist(list){try{localStorage.setItem(KEY,JSON.stringify(list.slice(-MAX)));}catch(e){}}
   function track(name,props){
-    var ev={t:Date.now(),name:name,uid:userId,sid:sessionId,tg:TGW.isTG,
+    var ev={t:Date.now(),name:name,uid:AUTH.uid||userId,sid:sessionId,tg:TGW.isTG,
       lv:(typeof G!=='undefined'&&G.level)?G.level:undefined,
       lang:(typeof db!=='undefined'&&db.lang)?db.lang:undefined,
       p:props||{}};
@@ -883,7 +893,7 @@ var db={unlocked:1,stars:{},seen:{},coins:150,energy:10,energyTs:0,noAds:false,
   boost:{hammer:2,shuffle:2,moves:1},sound:true,vibro:true,addr:null,lang:null,
   dailyLast:null,dailyStreak:0};
 var MAX_ENERGY=10,ENERGY_REGEN=180000;
-var AUTH={uid:'guest',user:null,session:false};
+
 var Save={
   KEY:'crys_m3_save',saving:false,
   migrate(){
@@ -2445,7 +2455,6 @@ function updateBoosters(){
     q.textContent=open?db.boost[k]:tf('lvlShort',{n:req});
   });
 }
-var coinShown=0,coinWritten=-1;
 
 /* ═══ ЭКРАНЫ / КАРТА ═══ */
 var mapShown=0,MAP_CHUNK=60;
@@ -2583,7 +2592,6 @@ function fillGoalList(el,L){
   if(g.specials)add(goalIcon('spec',34),tf('makeSpecials',{n:g.specials}));
 }
 
-/* ═══ ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ПРОСМОТРА РЕКЛАМЫ ═══ */
 function watchAd(placement, cb){
   Analytics.track('ad_reward_request', { placement: placement || 'general' });
   Ads.showRewarded(cb);
@@ -3002,6 +3010,145 @@ function bindUI(){
     this.classList.toggle('on',db.vibro);
     if(db.vibro)vibro();
   };
-  (function(){
-    var vl=$('#verLabel'),taps=0,tTimer=null;
-    ifВ моей программе нет таких возможностей. Я просто генерирую текст.
+  
+  var vl=$('#verLabel');
+  if(vl){
+    var taps=0,tTimer=null;
+    vl.style.cursor='pointer';
+    vl.onclick=function(){
+      taps++;if(tTimer)clearTimeout(tTimer);
+      tTimer=setTimeout(function(){taps=0;},1500);
+      if(taps>=5){taps=0;runDiagnostics();}
+    };
+  }
+
+  $('#btnReset').onclick=function(){
+    askConfirm(t('confirmResetProgress'),function(){
+      db.unlocked=1;db.stars={};db.seen={};db.coins=150;db.energy=MAX_ENERGY;db.energyTs=0;
+      db.boost={hammer:2,shuffle:2,moves:1};db.dailyLast=null;db.dailyStreak=0;
+      DBSaved();toast(t('toastSavedRestart'));
+      setTimeout(function(){location.reload();},1000);
+    });
+  };
+
+  $('#btnStart').onclick=function(){SND.play('click');tryStartLevel(preIdx);};
+  $('#btnPreShop').onclick=function(){SND.play('click');closeModal('mPre');openShop();};
+  $('#btnPause').onclick=function(){SND.play('click');openModal('mPause');};
+  $('#btnResume').onclick=function(){SND.play('click');closeModal('mPause');};
+  $('#btnPauseHome').onclick=function(){SND.play('click');closeModal('mPause');showScreen('home');};
+
+  $('#btnNext').onclick=function(){
+    SND.play('click');closeModal('mWin');
+    if(G.lv+1<TOTAL_LEVELS){
+      if(!tryStartLevel(G.lv+1))showScreen('home');
+    }else{
+      toast(t('toastAllLevelsDone'));showScreen('home');
+    }
+  };
+  $('#btnWinHome').onclick=function(){SND.play('click');closeModal('mWin');showScreen('home');};
+  $('#btnDouble').onclick=function(){
+    watchAd('double_reward',function(ok){
+      if(!ok)return;
+      db.coins+=winReward;DBSaved();
+      $('#btnDouble').disabled=true;
+      toast(tf('toastDoubled',{n:winReward}));
+    });
+  };
+
+  $('#btnRevive').onclick=function(){
+    watchAd('revive',function(ok){
+      if(!ok)return;
+      G.moves+=5;G.revived=true;closeModal('mLose');
+      G.state='idle';updateHud();armHint();
+      toast(t('toastRevived'));
+    });
+  };
+  $('#btnRetry').onclick=function(){
+    SND.play('click');closeModal('mLose');
+    if(!tryStartLevel(G.lv))showScreen('home');
+  };
+  $('#btnLoseHome').onclick=function(){SND.play('click');closeModal('mLose');showScreen('home');};
+
+  $('#bHammer').onclick=toggleHammer;
+  $('#bShuffle').onclick=function(){
+    if(db.unlocked<BOOST_REQ.shuffle){toast(t('toastSwirlLocked'));return;}
+    if(db.boost.shuffle<=0){offerBooster('shuffle');return;}
+    if(G.state!=='idle')return;
+    db.boost.shuffle--;DBSaved();updateBoosters();
+    G.state='busy';clearHint();
+    autoShuffle();
+  };
+  $('#bMoves').onclick=function(){
+    if(db.unlocked<BOOST_REQ.moves){toast(t('toastMovesLocked'));return;}
+    if(db.boost.moves<=0){offerBooster('moves');return;}
+    if(G.state!=='idle')return;
+    db.boost.moves--;DBSaved();updateBoosters();
+    G.moves+=5;updateHud();SND.play('coin');
+    toast(t('toastPlus5'));
+  };
+
+  $('#btnNoAds').onclick=openPay;
+  $('#btnFreeCoins').onclick=function(){
+    watchAd('free_coins',function(ok){
+      if(!ok)return;
+      db.coins+=100;DBSaved();
+      toast(t('toastPlus100Gold'));
+    });
+  };
+
+  $('#optTon').onclick=function(){payMode='ton';updPay();};
+  $('#optUsdt').onclick=function(){payMode='usdt';updPay();};
+  $('#optStars').onclick=function(){payMode='stars';updPay();};
+  $('#cpAddr').onclick=function(){copyText(TON_ADDR);};
+  $('#cpMemo').onclick=function(){copyText(payMemo());};
+  $('#btnStarsOpen').onclick=payStars;
+  $('#btnCheckPaid').onclick=checkPaid;
+}
+
+/* ═══ ГЛАВНЫЙ ЦИКЛ ═══ */
+var lastT=performance.now();
+function loop(now){
+  var dt=Math.min(.06,(now-lastT)/1000);lastT=now;
+  stepAnims(dt*1000);
+  energyTick();
+  if(G.scr==='game')drawBoard(dt,now);
+  drawBg(dt,now);
+  requestAnimationFrame(loop);
+}
+
+/* ═══ ИНИЦИАЛИЗАЦИЯ ═══ */
+window.addEventListener('DOMContentLoaded',async function(){
+  try{
+    loadConfig();
+    TGW.init();
+    Save.migrate();
+    
+    var secret=(AUTH.uid!=='guest')?AUTH.uid:(TGW.initData||'crys-local-key');
+    await Crypt.init(secret);
+    await Save.load();
+    
+    if(!db.lang)db.lang=detectLang();
+    applyI18n();
+    buildSprites();
+    
+    elCoins=$('#wCoins');elMoves=$('#hudMoves');elScore=$('#hudScore');elBarFill=$('#barFill');
+    bindInput();bindUI();resizeBg();
+    
+    window.addEventListener('resize',function(){
+      resizeBg();
+      if(G.scr==='game'&&G.level)fitCanvas();
+    });
+    
+    applyNoAds();
+    showScreen('menu');
+    requestAnimationFrame(loop);
+  }catch(e){
+    var err=document.createElement('div');
+    err.style.cssText='position:fixed;inset:0;background:#0b0e17;color:#e8384f;padding:20px;font:14px monospace;z-index:9999;overflow:auto';
+    err.textContent=t('bootError')+': '+(e.stack||e.message||e);
+    document.body.appendChild(err);
+  }
+});
+</script>
+</body>
+</html>
