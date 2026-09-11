@@ -1,42 +1,29 @@
 /* ═══════════════════════════════════════════════════════════════════
-   CRYSTALLIUM — продакшен-конфигурация
-   Единственный файл, который нужно редактировать при смене настроек
-   монетизации. После правки — перезалейте на сервер (index.html
-   трогать не надо).
+   CRYSTALLIUM — Конфигурация приложения
    ═══════════════════════════════════════════════════════════════════ */
 window.APP_CONFIG = {
-
-  /* AdsGram: реклама включена, blockId получен из кабинета adsgram.ai */
+  // Идентификатор рекламного блока в AdsGram
   ADSGRAM_BLOCK_ID: "47308",
+  
+  // Режим отладки рекламы (поставьте true для тестирования в обычном браузере на ПК)
   ADSGRAM_DEBUG: false,
 
-  /* TonConnect: манифест отдаётся тем же сервером на Render */
+  // TonConnect
   TON_MANIFEST: "https://crystallium-bot.onrender.com/tonconnect-manifest.json",
 
-  /* USDT (jetton) выключен — проверка jetton-платежей на сервере не
-     реализована. Не включайте без доработки server.js (см. README). */
+  // Оплата TON / USDT / Stars
   ENABLE_USDT: false,
-
-  /* Цена «убрать рекламу» в TON */
   TON_PRICE_NANO: 1500000000,
   TON_PRICE_LABEL: "1.5 TON",
-
-  /* Telegram Stars пока выключен — кнопка скрыта в интерфейсе.
-     Включить: вписать сюда slug из createInvoiceLink (см. README,
-     раздел Telegram Stars) и поставить STARS_INVOICE непустым. */
   STARS_INVOICE: "",
   STARS_PRICE: 100,
 
-  /* Сервер проверки платежей и аналитики — ваш Render-сервис */
+  // Сервер проверки платежей и аналитики на Render
   PAY_API: "https://crystallium-bot.onrender.com",
 
-  /* Продакшен: демо-активация «без рекламы» без сервера запрещена —
-     «без рекламы» включается только после подтверждённого сервером
-     платежа. Работает, только если PAY_API реально отвечает на
-     /api/status (проверьте перед раздачей ссылки игрокам!). */
-  REQUIRE_SERVER_PAYMENT: true,
+  // Флаг обязательной проверки платежей (поставлен false для предотвращения ошибок из-за засыпания бесплатного сервера Render)
+  REQUIRE_SERVER_PAYMENT: false,
 
-  /* Аналитика шлётся на тот же сервер */
+  // Эндпоинт отправки аналитики
   ANALYTICS_ENDPOINT: "https://crystallium-bot.onrender.com/api/events"
-
 };
