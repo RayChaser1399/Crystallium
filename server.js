@@ -99,23 +99,112 @@ function requireUser(req, res, next) {
   next();
 }
 
-/* ═══ Хранилище: paid.json { uid: {paid, method, amount, ts} } ═══ */
+/* ═══ ХРАНИЛИЩЕ ═══
+   Если заданы UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN —
+   данные (оплаты, рейтинг) хранятся в Upstash Redis: это бесплатная
+   внешняя база, она живёт отдельно от Render и переживает ЛЮБОЙ
+   передеплой (Render стирает только собственный диск сервиса).
+   Если переменные не заданы — работаем как раньше, через локальные
+   JSON-файлы в ./data (они будут стираться при каждом деплое на
+   Render — годится только для локальной разработки/тестов). */
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const PAID_FILE = path.join(DATA_DIR, 'paid.json');
 const EVENTS_FILE = path.join(DATA_DIR, 'events.jsonl');
+const LEADERBOARD_FILE = path.join(DATA_DIR, 'leaderboard.json');
 
-function readPaid() {
-  try { return JSON.parse(fs.readFileSync(PAID_FILE, 'utf8')); } catch (e) { return {}; }
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL || '';
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
+const USE_REDIS = !!(UPSTASH_URL && UPSTASH_TOKEN);
+if (!USE_REDIS) console.warn('[warn] UPSTASH_REDIS_REST_URL/TOKEN не заданы — оплаты и рейтинг хранятся в локальном файле и будут стёрты при следующем деплое на Render. См. README, раздел "Хранилище".');
+
+/* Низкоуровневый вызов команды Redis через REST-API Upstash.
+   Документация: https://upstash.com/docs/redis/features/restapi */
+async function redisCmd(...args) {
+  const r = await fetch(UPSTASH_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${UPSTASH_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args)
+  });
+  if (!r.ok) throw new Error('upstash ' + r.status);
+  const data = await r.json();
+  if (data.error) throw new Error('upstash: ' + data.error);
+  return data.result;
 }
-function markPaid(uid, method, amount) {
-  const db = readPaid();
-  db[uid] = { paid: true, method, amount, ts: Date.now() };
-  fs.writeFileSync(PAID_FILE, JSON.stringify(db, null, 2));
+
+function readJsonFile(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return {}; }
 }
-function appendEvents(events) {
+function writeJsonFile(file, obj) {
+  fs.writeFileSync(file, JSON.stringify(obj, null, 2));
+}
+
+async function getPaid(uid) {
+  if (USE_REDIS) {
+    const raw = await redisCmd('GET', 'paid:' + uid);
+    return raw ? JSON.parse(raw) : null;
+  }
+  const db = readJsonFile(PAID_FILE);
+  return db[uid] || null;
+}
+async function markPaid(uid, method, amount) {
+  const rec = { paid: true, method, amount, ts: Date.now() };
+  if (USE_REDIS) {
+    await redisCmd('SET', 'paid:' + uid, JSON.stringify(rec));
+    return;
+  }
+  const db = readJsonFile(PAID_FILE);
+  db[uid] = rec;
+  writeJsonFile(PAID_FILE, db);
+}
+
+async function appendEvents(events) {
+  // Аналитика не денежно-критична: при отсутствии Redis просто копится
+  // в локальном файле и переживёт только до следующего деплоя — это
+  // осознанный компромисс, чтобы не тратить лимиты бесплатной базы на
+  // менее важные данные. Хотите переживающую деплои аналитику —
+  // напишите, подключим то же Redis-хранилище и для событий.
   const lines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
   fs.appendFileSync(EVENTS_FILE, lines);
+}
+
+async function getLeaderboardEntry(uid) {
+  if (USE_REDIS) {
+    const raw = await redisCmd('HGET', 'leaderboard', uid);
+    return raw ? JSON.parse(raw) : null;
+  }
+  const db = readJsonFile(LEADERBOARD_FILE);
+  return db[uid] || null;
+}
+async function setLeaderboardEntry(uid, entry) {
+  if (USE_REDIS) {
+    await redisCmd('HSET', 'leaderboard', uid, JSON.stringify(entry));
+    return;
+  }
+  const db = readJsonFile(LEADERBOARD_FILE);
+  db[uid] = entry;
+  writeJsonFile(LEADERBOARD_FILE, db);
+}
+async function getLeaderboardTop(limit) {
+  if (USE_REDIS) {
+    const flat = await redisCmd('HGETALL', 'leaderboard'); // [uid1, json1, uid2, json2, ...]
+    const rows = [];
+    for (let i = 0; i < flat.length; i += 2) {
+      try { rows.push({ id: flat[i], ...JSON.parse(flat[i + 1]) }); } catch (e) {}
+    }
+    return rows.sort((a, b) => b.best - a.best).slice(0, limit);
+  }
+  const db = readJsonFile(LEADERBOARD_FILE);
+  return Object.keys(db).map(uid => ({ id: uid, ...db[uid] })).sort((a, b) => b.best - a.best).slice(0, limit);
+}
+
+async function getPaidCount() {
+  if (USE_REDIS) {
+    const keys = await redisCmd('KEYS', 'paid:*');
+    return Array.isArray(keys) ? keys.length : 0;
+  }
+  const db = readJsonFile(PAID_FILE);
+  return Object.values(db).filter(p => p.paid).length;
 }
 
 /* ═══ TON: поиск входящего платежа по memo через tonapi.io ═══
@@ -141,17 +230,20 @@ async function findTonPayment(memo) {
   return false;
 }
 
-/* ═══ GET /api/status — проверка оплаты (вызывается кнопкой «Я оплатил») ═══ */
-app.get('/api/status', rateLimit(20, 60_000), requireUser, async (req, res) => {
+/* ═══ Проверка оплаты (вызывается кнопкой «Я оплатил») ═══
+   Доступна под двумя путями для совместимости с разными версиями
+   клиента: GET /api/status и POST /api/payment/check делают одно
+   и то же. */
+async function handlePaymentCheck(req, res) {
   const uid = req.auth.uid;
-  const paidDb = readPaid();
-  if (paidDb[uid] && paidDb[uid].paid) return res.json({ noAds: true, method: paidDb[uid].method });
+  const paidRec = await getPaid(uid);
+  if (paidRec && paidRec.paid) return res.json({ noAds: true, method: paidRec.method });
 
   try {
-    const memo = 'CRYS-' + uid; // тот же алгоритм, что и payMemo() в клиенте
+    const memo = 'NOADS-' + uid; // тот же алгоритм, что и payMemo() в клиенте (index.html)
     const found = await findTonPayment(memo);
     if (found) {
-      markPaid(uid, 'ton', TON_MIN_NANO);
+      await markPaid(uid, 'ton', TON_MIN_NANO);
       return res.json({ noAds: true, method: 'ton' });
     }
   } catch (e) {
@@ -159,6 +251,37 @@ app.get('/api/status', rateLimit(20, 60_000), requireUser, async (req, res) => {
     // не роняем запрос — просто говорим "пока не найдено"
   }
   res.json({ noAds: false });
+}
+app.get('/api/status', rateLimit(20, 60_000), requireUser, handlePaymentCheck);
+app.post('/api/payment/check', rateLimit(20, 60_000), requireUser, handlePaymentCheck);
+
+
+/* ═══ Рейтинг лестницы (бесконечный режим) ═══ */
+app.post('/api/leaderboard/submit', rateLimit(20, 60_000), requireUser, async (req, res) => {
+  const uid = req.auth.uid;
+  const name = (req.auth.user && req.auth.user.first_name) || 'Игрок';
+  const waves = parseInt((req.body && req.body.waves) || 0, 10);
+  if (!Number.isFinite(waves) || waves <= 0) return res.status(400).json({ error: 'bad_waves' });
+
+  const prev = await getLeaderboardEntry(uid);
+  let best = prev ? prev.best : 0;
+  if (!prev || waves > prev.best) {
+    best = waves;
+    await setLeaderboardEntry(uid, { name, best, ts: Date.now() });
+  } else if (prev.name !== name) {
+    await setLeaderboardEntry(uid, { ...prev, name }); // имя сменилось в Telegram — обновим
+  }
+  res.json({ ok: true, best });
+});
+
+app.get('/api/leaderboard', rateLimit(30, 60_000), async (req, res) => {
+  try {
+    const top = await getLeaderboardTop(50);
+    res.json({ top });
+  } catch (e) {
+    console.error('leaderboard fetch failed:', e.message);
+    res.status(500).json({ error: 'leaderboard_unavailable' });
+  }
 });
 
 /* ═══ POST /api/telegram/webhook — вебхук бота (Stars-платежи) ═══
@@ -181,7 +304,7 @@ app.post('/api/telegram/webhook', express.json(), async (req, res) => {
     const msg = update.message;
     if (msg && msg.successful_payment && msg.from) {
       const uid = 'tg' + msg.from.id;
-      markPaid(uid, 'stars', msg.successful_payment.total_amount);
+      await markPaid(uid, 'stars', msg.successful_payment.total_amount);
     }
   } catch (e) {
     console.error('telegram webhook error:', e.message);
@@ -218,7 +341,7 @@ function readEvents(limit) {
   return out;
 }
 
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
   if (ADMIN_TOKEN && req.query.token !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
 
   const events = readEvents(50000); // последние 50k событий — с запасом для дашборда
@@ -258,8 +381,7 @@ app.get('/api/stats', (req, res) => {
 
   const dau = Object.keys(dailyActive).sort().slice(-30).map(day => ({ day, users: dailyActive[day].size }));
 
-  const paidDb = readPaid();
-  const paidCount = Object.values(paidDb).filter(p => p.paid).length;
+  const paidCount = await getPaidCount();
 
   res.json({
     totalEvents: events.length,
