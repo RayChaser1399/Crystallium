@@ -418,15 +418,8 @@ body.noads .ad-tag,body.noads .ad-txt{display:none}
   <div class="set-row"><span>Шифрование сейва</span><button class="switch on" id="swEnc" style="opacity:.7" disabled></button></div>
   <div class="set-row"><span>TON-кошелёк</span><button class="btn small" id="btnWLink">Привязать</button></div>
   <div class="col">
-    <button class="btn small" id="btnDiag">Диагностика</button>
     <button class="btn small" id="btnReset" style="border-style:dashed">Сбросить прогресс</button>
   </div>
-</div></div>
-
-<div class="overlay" id="mDiag"><div class="modal">
-  <button class="x-close" data-close><svg class="ic"><use href="#i-x"/></svg></button>
-  <h2>Диагностика</h2>
-  <div id="diagList"></div>
 </div></div>
 
 <div class="overlay" id="mHelp"><div class="modal">
@@ -1657,9 +1650,13 @@ function winSequence(){
       DBSaved();renderCoins();
       SND.play('unlock');
       toast('Волна '+G.step+' пройдена! +'+reward+' золота · далее ходов: '+carry);
+      var completedWave=G.step;
       G.step++;
       G.pendingMoves=carry;
-      startLevel(0,genEndStep(G.step));
+      Analytics.track('endless_wave_win',{wave:completedWave,reward:reward,score:G.score});
+      var go=function(){startLevel(0,genEndStep(G.step));};
+      if(completedWave%3===0)Ads.interstitial(go);
+      else go();
       return;
     }
     /* ── КАМПАНИЯ ── */
@@ -1669,6 +1666,7 @@ function winSequence(){
     db.coins+=reward2;
     var newU=checkUnlocks();
     DBSaved();
+    Analytics.track('level_win',{level:G.lv,stars:st,reward:reward2,score:G.score});
     showWin(st,reward2,newU);
   });
 }
@@ -1676,6 +1674,7 @@ function loseSequence(){
   G.state='lost';clearHint();
   SND.play('lose');
   var isEndless=G.mode==='endless';
+  Analytics.track(isEndless?'endless_wave_lose':'level_lose',{level:G.lv,wave:isEndless?G.step:undefined,score:G.score});
   if(isEndless){
     /* реклама без ограничений — кнопка доступна всегда */
     $('#btnRevive').style.display='';
@@ -1720,6 +1719,11 @@ function startLevel(idx,customL){
   G.lv=idx;G.level=L;
   G.cols=L.cols;G.rows=L.rows;
   G.score=0;G.dispScore=0;G.moves=L.moves;
+  if(G.mode==='endless'){
+    Analytics.track('endless_wave_start',{wave:G.step});
+  }else{
+    Analytics.track('level_start',{level:idx,energy:db.energy,coins:db.coins});
+  }
   if(G.mode==='endless'&&G.step>1&&G.pendingMoves!=null){
     G.moves=Math.max(1,G.pendingMoves);
     G.pendingMoves=null;
@@ -2413,10 +2417,12 @@ var Ads={
     this.busy=true;
     this.controller().then(function(c){
       if(!c){self.busy=false;self.demo(cb);return;}
+      Analytics.track('ad_shown',{mode:'rewarded'});
       c.show().then(function(){
-        self.busy=false;cb(true);
+        self.busy=false;Analytics.track('ad_completed',{mode:'rewarded'});cb(true);
       }).catch(function(){
-        self.busy=false;toast('Ролик не досмотрен — награда не начислена');cb(false);
+        self.busy=false;Analytics.track('ad_failed',{mode:'rewarded'});
+        toast('Ролик не досмотрен — награда не начислена');cb(false);
       });
     }).catch(function(){
       self.busy=false;self.demo(cb);
@@ -2424,6 +2430,7 @@ var Ads={
   },
   demo(cb){
     openModal('mAd');
+    Analytics.track('ad_shown',{mode:'demo_fallback'});
     var t=4,btn=$('#btnAdClose'),lab=$('#adTimer'),iv;
     btn.disabled=true;lab.textContent='Пропуск через '+t+'…';
     iv=setInterval(function(){
@@ -2432,7 +2439,9 @@ var Ads={
       else{clearInterval(iv);lab.textContent='Готово!';btn.disabled=false;}
     },1000);
     btn.onclick=function(){
-      clearInterval(iv);closeModal('mAd');SND.play('click');cb(true);
+      clearInterval(iv);closeModal('mAd');SND.play('click');
+      Analytics.track('ad_completed',{mode:'demo_fallback'});
+      cb(true);
     };
   },
   interstitial(done){
@@ -2441,10 +2450,45 @@ var Ads={
     this.lastInter=Date.now();
     this.controllerInt().then(function(c){
       if(!c){done();return;}
-      c.show().then(done,done);
+      Analytics.track('ad_shown',{mode:'interstitial'});
+      c.show().then(function(){Analytics.track('ad_completed',{mode:'interstitial'});done();},
+                    function(){Analytics.track('ad_failed',{mode:'interstitial'});done();});
     }).catch(done);
   }
 };
+/* ═══ АНАЛИТИКА ═══
+   Раньше в этой версии игры не было вообще никакого кода, который
+   слал бы события на сервер — поле ANALYTICS_ENDPOINT в конфиге было
+   мёртвым. Теперь события реально собираются и уходят батчами. */
+var Analytics=(function(){
+  var queue=[],flushTimer=null;
+  var sessionId='s_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  function track(name,props){
+    var ev={t:Date.now(),name:name,uid:AUTH.uid,sid:sessionId,
+      lv:(typeof G!=='undefined')?G.lv:undefined,
+      mode:(typeof G!=='undefined')?G.mode:undefined,
+      p:props||{}};
+    queue.push(ev);
+    if(!flushTimer)flushTimer=setTimeout(flush,3000);
+  }
+  function flush(){
+    flushTimer=null;
+    if(!queue.length)return;
+    var batch=queue.splice(0,queue.length);
+    if(!CONFIG.ANALYTICS_ENDPOINT)return;
+    try{
+      var body=JSON.stringify({events:batch,initData:TGW.initData||''});
+      if(navigator.sendBeacon){
+        navigator.sendBeacon(CONFIG.ANALYTICS_ENDPOINT,new Blob([body],{type:'application/json'}));
+      }else{
+        fetch(CONFIG.ANALYTICS_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true}).catch(function(){});
+      }
+    }catch(e){}
+  }
+  window.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flush();});
+  window.addEventListener('pagehide',flush);
+  return {track:track,flush:flush};
+})();
 function watchAd(placement,cb){
   Ads.showRewarded(function(ok){
     if(ok){TGW.haptic('ok');DBSaved();}
@@ -2536,6 +2580,7 @@ function checkPaid(){
       db.noAds=true;DBSaved();applyNoAds();closeModal('mPay');
       SND.play('win');vibro('ok');
       toast('Оплата подтверждена — реклама отключена навсегда');
+      Analytics.track('purchase_confirmed',{method:d.method||'unknown'});
     }else{
       toast('Платёж не найден. После перевода подождите ~1 мин и повторите');
     }
@@ -2682,31 +2727,6 @@ function startEnergyTimer(){
   },500);
 }
 
-function runDiagnostics(){
-  var items=[];
-  function row(name,ok,warn,val){items.push({name:name,ok:ok,warn:warn,value:val});}
-  row('Telegram WebApp',TGW.isTG,!!TGW.api&&!TGW.isTG,TGW.isTG?'подключён':(TGW.api?'вне Telegram':'нет SDK'));
-  row('Авторизация',AUTH.session,!AUTH.session,AUTH.session?AUTH.user.first_name:'гость (демо)');
-  row('AdsGram blockId',!!CONFIG.ADSGRAM_BLOCK_ID,!CONFIG.ADSGRAM_BLOCK_ID,CONFIG.ADSGRAM_BLOCK_ID);
-  row('Тестовый режим рекламы',!CONFIG.ADSGRAM_DEBUG,CONFIG.ADSGRAM_DEBUG,CONFIG.ADSGRAM_DEBUG?'debug:true → после одобрения false':'выкл (прод)');
-  row('Инвойс Stars (100★)',!!CONFIG.STARS_INVOICE,!CONFIG.STARS_INVOICE,CONFIG.STARS_INVOICE?'задан':'не задан (CONFIG)');
-  row('Сервер (рейтинг+оплаты)',!!CONFIG.PAY_API,!CONFIG.PAY_API,CONFIG.PAY_API?'подключён':'PAY_API не задан');
-  row('TonConnect',!!(window.TON_CONNECT_UI&&window.TON_CONNECT_UI.TonConnectUI),!(window.TON_CONNECT_UI&&window.TON_CONNECT_UI.TonConnectUI),(window.TON_CONNECT_UI&&window.TON_CONNECT_UI.TonConnectUI)?'загружен':'нет');
-  row('Manifest TON',Wallet.manifestOk(),!Wallet.manifestOk(),Wallet.manifestOk()?'настроен':'не задан');
-  row('Кошелёк',!!db.addr,!db.addr,db.addr?shortAddr(db.addr):'не привязан');
-  row('Memo для оплаты',true,false,payMemo());
-  row('Личный рекорд волн',true,false,String(db.endlessBest||0));
-  row('Шифрование AES-GCM',Crypt.ok,!Crypt.ok,Crypt.ok?'активно':'crypto.subtle недоступен');
-  row('CloudStorage TG',TGW.isTG,!TGW.isTG,TGW.isTG?'используется':'localStorage');
-  var box=$('#diagList');box.innerHTML='';
-  items.forEach(function(it){
-    var d=document.createElement('div');d.className='kv';
-    d.innerHTML='<span><svg style="fill:currentColor"><use href="#'+(it.ok?'i-ok':it.warn?'i-warn':'i-bad')+'"/></svg> '+it.name+'</span><b class="'+(it.ok?'ok':it.warn?'warn':'bad')+'">'+it.value+'</b>';
-    box.appendChild(d);
-  });
-  openModal('mDiag');
-}
-
 function bindUI(){
   function on(id,fn){var el=document.getElementById(id);if(el)el.onclick=fn;}
 
@@ -2778,7 +2798,6 @@ function bindUI(){
     this.classList.toggle('on',db.vibro);
     if(db.vibro)vibro();
   });
-  on('btnDiag',function(){runDiagnostics();});
   on('btnReset',function(){
     askConfirm('Сброс','Удалить весь прогресс?',function(){
       try{localStorage.removeItem(Save.KEY);localStorage.removeItem('crystallium4');localStorage.removeItem('crys_m3_save');}catch(e){}
@@ -3001,6 +3020,7 @@ async function boot(){
     syncPaidStatus();
     showScreen('menu');
     renderMap(true);
+    Analytics.track('session_start',{isTG:TGW.isTG,unlocked:db.unlocked,coins:db.coins,noAds:db.noAds});
     $('#levelMap').addEventListener('scroll',function(){
       var m=this;
       if(m.scrollTop+m.clientHeight>m.scrollHeight-300)renderMap(false);
