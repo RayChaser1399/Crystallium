@@ -481,6 +481,7 @@ body.noads .ad-tag,body.noads .ad-txt{display:none}
   </div>
 </div></div>
 
+<script src="config.js"></script>
 <script>
 'use strict';
 window.addEventListener('error',function(e){
@@ -505,14 +506,24 @@ var CONFIG={
   ADSGRAM_BLOCK_ID:'47308',
   ADSGRAM_BLOCK_ID_INT:'47308',
   ADSGRAM_DEBUG:false,     /* ПОСЛЕ ОДОБРЕНИЯ БЛОКА → false */
-  TON_ADDR:'UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  TON_ADDR:'UQDD75z4Q_jxvFd8O3lMgWEuBtRiIK_CCC6RZI1RYABbnG-K',
   TON_MANIFEST:'',
   STARS_INVOICE:'',
   PAY_API:'',
+  ANALYTICS_ENDPOINT:'',
   /* Бесконечный режим: банк ходов */
   ENDLESS_CARRY_BONUS:10,  /* +10 ходов за волну */
   ENDLESS_CARRY_CAP:30     /* потолок переносимого остатка */
 };
+/* КРИТИЧНО: подхватываем реальные продакшен-значения из config.js
+   (window.APP_CONFIG). Раньше этого блока не было — config.js
+   загружался, но ни одно его значение никогда не применялось: ни
+   реальный TON-адрес, ни PAY_API, ничего. Теперь применяется. */
+if(typeof window.APP_CONFIG==='object'&&window.APP_CONFIG){
+  Object.keys(window.APP_CONFIG).forEach(function(k){
+    if(window.APP_CONFIG[k]!==undefined&&window.APP_CONFIG[k]!==null)CONFIG[k]=window.APP_CONFIG[k];
+  });
+}
 
 function $(s){return document.querySelector(s);}
 function clamp(v,a,b){return v<a?a:(v>b?b:v);}
@@ -2446,10 +2457,10 @@ var Wallet={
   manifestOk(){return /^https:\/\//.test(CONFIG.TON_MANIFEST);},
   ensure(){
     if(this.ui)return Promise.resolve();
-    if(!window.TonConnectUI)return Promise.reject(new Error('TonConnect UI не загрузился'));
+    if(!window.TON_CONNECT_UI||!window.TON_CONNECT_UI.TonConnectUI)return Promise.reject(new Error('TonConnect UI не загрузился'));
     if(!this.manifestOk())return Promise.reject(new Error('TON_MANIFEST не задан в CONFIG'));
     var self=this;
-    this.ui=new TonConnectUI({manifestUrl:CONFIG.TON_MANIFEST});
+    this.ui=new window.TON_CONNECT_UI.TonConnectUI({manifestUrl:CONFIG.TON_MANIFEST});
     this.ui.onStatusChange(function(w){
       db.addr=w?w.account.address:null;
       DBSaved();
@@ -2510,25 +2521,25 @@ function payStars(){
   }catch(e){toast('Не удалось открыть инвойс: '+e.message);}
 }
 function checkPaid(){
-  if(CONFIG.PAY_API){
-    toast('Проверяем платёж…');
-    fetch(CONFIG.PAY_API.replace(/\/+$/,'')+'/api/payment/check',{
-      method:'POST',headers:{'X-Init-Data':TGW.initData}
-    }).then(function(r){return r.json();}).then(function(d){
-      if(d.noAds){
-        db.noAds=true;DBSaved();applyNoAds();closeModal('mPay');
-        SND.play('win');vibro('ok');
-        toast('Оплата подтверждена — реклама отключена навсегда');
-      }else{
-        toast('Платёж не найден. После перевода подождите ~1 мин и повторите');
-      }
-    }).catch(function(e){toast('Проверка не удалась: '+e.message);});
-  }else{
-    /* ДЕМО без сервера — в продакшене задайте PAY_API в CONFIG! */
-    db.noAds=true;DBSaved();applyNoAds();closeModal('mPay');
-    SND.play('win');vibro('ok');
-    toast('Реклама отключена (демо-активация — задайте PAY_API в CONFIG)');
+  if(!CONFIG.PAY_API){
+    toast('Проверка платежей недоступна: сервер не настроен (PAY_API пуст в config.js)');
+    return;
   }
+  toast('Проверяем платёж…');
+  fetch(CONFIG.PAY_API.replace(/\/+$/,'')+'/api/payment/check',{
+    method:'POST',headers:{'X-Init-Data':TGW.initData}
+  }).then(function(r){
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(function(d){
+    if(d.noAds){
+      db.noAds=true;DBSaved();applyNoAds();closeModal('mPay');
+      SND.play('win');vibro('ok');
+      toast('Оплата подтверждена — реклама отключена навсегда');
+    }else{
+      toast('Платёж не найден. После перевода подождите ~1 мин и повторите');
+    }
+  }).catch(function(e){toast('Проверка не удалась: '+e.message);});
 }
 function syncPaidStatus(){
   if(!CONFIG.PAY_API||!TGW.isTG)return;
@@ -2680,7 +2691,7 @@ function runDiagnostics(){
   row('Тестовый режим рекламы',!CONFIG.ADSGRAM_DEBUG,CONFIG.ADSGRAM_DEBUG,CONFIG.ADSGRAM_DEBUG?'debug:true → после одобрения false':'выкл (прод)');
   row('Инвойс Stars (100★)',!!CONFIG.STARS_INVOICE,!CONFIG.STARS_INVOICE,CONFIG.STARS_INVOICE?'задан':'не задан (CONFIG)');
   row('Сервер (рейтинг+оплаты)',!!CONFIG.PAY_API,!CONFIG.PAY_API,CONFIG.PAY_API?'подключён':'PAY_API не задан');
-  row('TonConnect',!!window.TonConnectUI,!window.TonConnectUI,window.TonConnectUI?'загружен':'нет');
+  row('TonConnect',!!(window.TON_CONNECT_UI&&window.TON_CONNECT_UI.TonConnectUI),!(window.TON_CONNECT_UI&&window.TON_CONNECT_UI.TonConnectUI),(window.TON_CONNECT_UI&&window.TON_CONNECT_UI.TonConnectUI)?'загружен':'нет');
   row('Manifest TON',Wallet.manifestOk(),!Wallet.manifestOk(),Wallet.manifestOk()?'настроен':'не задан');
   row('Кошелёк',!!db.addr,!db.addr,db.addr?shortAddr(db.addr):'не привязан');
   row('Memo для оплаты',true,false,payMemo());
