@@ -26,7 +26,9 @@ const path = require('path');
 const crypto = require('crypto');
 
 const app = express();
-app.use(express.json({ limit: '256kb' }));
+// JSON-парсер подключается на каждом маршруте отдельно (не глобально) —
+// иначе он бы съедал тело запроса ещё до того, как /api/events успеет
+// разобрать его сам вручную (см. комментарий у этого маршрута ниже).
 
 /* ── конфигурация из .env (см. .env.example) ── */
 const PORT = process.env.PORT || 3000;
@@ -264,7 +266,7 @@ app.post('/api/payment/check', rateLimit(20, 60_000), requireUser, handlePayment
 
 
 /* ═══ Рейтинг лестницы (бесконечный режим) ═══ */
-app.post('/api/leaderboard/submit', rateLimit(20, 60_000), requireUser, async (req, res) => {
+app.post('/api/leaderboard/submit', express.json({ limit: '256kb' }), rateLimit(20, 60_000), requireUser, async (req, res) => {
   const uid = req.auth.uid;
   const name = (req.auth.user && req.auth.user.first_name) || 'Игрок';
   const waves = parseInt((req.body && req.body.waves) || 0, 10);
@@ -319,9 +321,20 @@ app.post('/api/telegram/webhook', express.json(), async (req, res) => {
   res.sendStatus(200);
 });
 
-/* ═══ POST /api/events — приём событий аналитики от клиента ═══ */
-app.post('/api/events', rateLimit(30, 60_000), (req, res) => {
-  const body = req.body || {};
+/* ═══ POST /api/events — приём событий аналитики от клиента ═══
+   Читаем тело запроса вручную (express.text с type:()=>true), а не
+   через express.json() — некоторые браузеры/WebView при отправке
+   через navigator.sendBeacon() присылают Content-Type: text/plain
+   вместо application/json, и стандартный JSON-парсер Express такое
+   тело молча игнорирует (req.body остаётся пустым, событие теряется
+   без единой ошибки). Здесь разбираем JSON сами, независимо от
+   заголовка. */
+app.post('/api/events', rateLimit(30, 60_000), express.text({ type: () => true, limit: '256kb' }), (req, res) => {
+  let body = {};
+  try { body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {}); } catch (e) {
+    console.error('events: bad JSON body:', e.message);
+    return res.status(400).json({ error: 'bad_json' });
+  }
   const events = Array.isArray(body.events) ? body.events.slice(0, 200) : [];
   if (!events.length) return res.json({ ok: true, stored: 0 });
   // initData необязателен здесь (клиент шлёт события и для гостей вне Telegram),
