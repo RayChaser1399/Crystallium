@@ -2472,23 +2472,26 @@ var Analytics=(function(){
     queue.push(ev);
     if(!flushTimer)flushTimer=setTimeout(flush,3000);
   }
-  function flush(){
+  function flush(useBeacon){
     flushTimer=null;
     if(!queue.length)return;
     var batch=queue.splice(0,queue.length);
     if(!CONFIG.ANALYTICS_ENDPOINT)return;
+    var body=JSON.stringify({events:batch,initData:TGW.initData||''});
     try{
-      var body=JSON.stringify({events:batch,initData:TGW.initData||''});
-      if(navigator.sendBeacon){
-        navigator.sendBeacon(CONFIG.ANALYTICS_ENDPOINT,new Blob([body],{type:'application/json'}));
+      if(useBeacon&&navigator.sendBeacon){
+        var ok=navigator.sendBeacon(CONFIG.ANALYTICS_ENDPOINT,new Blob([body],{type:'text/plain;charset=UTF-8'}));
+        if(!ok)console.error('[Analytics] sendBeacon отклонён браузером');
       }else{
-        fetch(CONFIG.ANALYTICS_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true}).catch(function(){});
+        fetch(CONFIG.ANALYTICS_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true})
+          .then(function(r){if(!r.ok)console.error('[Analytics] сервер ответил',r.status);})
+          .catch(function(e){console.error('[Analytics] отправка не удалась:',e.message);});
       }
-    }catch(e){}
+    }catch(e){console.error('[Analytics] ошибка:',e.message);}
   }
-  window.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flush();});
-  window.addEventListener('pagehide',flush);
-  return {track:track,flush:flush};
+  window.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flush(true);});
+  window.addEventListener('pagehide',function(){flush(true);});
+  return {track:track,flush:function(){flush(false);}};
 })();
 /* ═══ БЕСПЛАТНЫЕ ЛИМИТЫ (без рекламы) ═══
    Каждый день по 5 бесплатных использований на категорию: бустеры
