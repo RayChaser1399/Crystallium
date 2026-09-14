@@ -406,7 +406,7 @@ body.noads .ad-tag,body.noads .ad-txt{display:none}
   <div id="shopRows"></div>
   <div class="col">
     <button class="btn" id="btnNoAds" style="border-style:dashed"><svg class="ic"><use href="#i-ton"/></svg>Убрать рекламу · TON / USDT / 100★</button>
-    <button class="btn" id="btnFreeCoins" style="border-style:dashed"><svg class="ic"><use href="#i-play"/></svg>+100 золота <span class="ad-tag">AD</span></button>
+    <button class="btn" id="btnFreeCoins" style="border-style:dashed"><svg class="ic"><use href="#i-play"/></svg>+100 золота <span class="ad-tag" id="tagFreeCoins">AD</span></button>
   </div>
 </div></div>
 
@@ -461,7 +461,7 @@ body.noads .ad-tag,body.noads .ad-txt{display:none}
   <h2>Энергия закончилась</h2>
   <p class="sub">Вход стоит 1 ⚡ из 10.<br>Следующая энергия через <b id="energyTimer">3:00</b></p>
   <div class="col">
-    <button class="btn primary" id="btnRefillEnergy"><svg class="ic"><use href="#i-play"/></svg>Полная энергия <span class="ad-tag">AD</span></button>
+    <button class="btn primary" id="btnRefillEnergy"><svg class="ic"><use href="#i-play"/></svg>Полная энергия <span class="ad-tag" id="tagRefillEnergy">AD</span></button>
     <button class="btn small" data-close>Подождать</button>
   </div>
 </div></div>
@@ -612,7 +612,8 @@ var Crypt={
 };
 
 var db={unlocked:1,stars:{},seen:{},coins:150,energy:10,energyTs:0,noAds:false,daily:'',endlessBest:0,
-  boost:{hammer:2,shuffle:2,moves:1},sound:true,vibro:true,addr:null};
+  boost:{hammer:2,shuffle:2,moves:1},sound:true,vibro:true,addr:null,
+  freeDate:'',freeUses:{bonus:0,gold:0,energy:0}};
 var MAX_ENERGY=10,ENERGY_REGEN=180000;
 var AUTH={uid:'guest',user:null,session:false};
 var Save={
@@ -2410,8 +2411,8 @@ var Ads={
     if(!this.ctrlInt)this.ctrlInt=await this.makeCtrl(id);
     return this.ctrlInt;
   },
-  showRewarded(cb){
-    if(db.noAds){cb(true);return;}
+  showRewarded(cb,force){
+    if(db.noAds&&!force){cb(true);return;}
     if(this.busy){cb(false);return;}
     var self=this;
     this.busy=true;
@@ -2489,11 +2490,43 @@ var Analytics=(function(){
   window.addEventListener('pagehide',flush);
   return {track:track,flush:flush};
 })();
-function watchAd(placement,cb){
+/* ═══ БЕСПЛАТНЫЕ ЛИМИТЫ (без рекламы) ═══
+   Каждый день по 5 бесплатных использований на категорию: бустеры
+/* ═══ БЕСПЛАТНЫЕ ЛИМИТЫ ДЛЯ ОПЛАТИВШИХ «БЕЗ РЕКЛАМЫ» ═══
+   Не оплатившим — всё как раньше: бонусы/золото/энергия по рекламе,
+   без ограничений по количеству в сутки, реклама между уровнями
+   каждые 3 уровня (см. Ads.interstitial — не трогали).
+   Оплатившим «без рекламы»: между уровнями рекламы нет никогда, а
+   бонус/золото/энергия — 5 раз в сутки бесплатно (без показа рекламы
+   вообще, раз реклама отключена), сверх пяти — тоже через рекламу,
+   как обычному пользователю. */
+var FREE_DAILY_LIMIT=5;
+function todayStr(){var d=new Date();return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();}
+function ensureFreeQuota(){
+  var t=todayStr();
+  if(db.freeDate!==t){db.freeDate=t;db.freeUses={bonus:0,gold:0,energy:0};DBSaved();}
+}
+function freeLeft(cat){ensureFreeQuota();return Math.max(0,FREE_DAILY_LIMIT-(db.freeUses[cat]||0));}
+function useFreeAction(cat,cb){
+  ensureFreeQuota();
+  db.freeUses[cat]=(db.freeUses[cat]||0)+1;DBSaved();
+  toast('Бесплатно: '+db.freeUses[cat]+'/'+FREE_DAILY_LIMIT+' сегодня');
+  Analytics.track('free_reward_used',{category:cat,used:db.freeUses[cat]});
+  cb(true);
+}
+/* Обёртка вокруг watchAd: для НЕ оплативших — всегда обычная реклама,
+   без лимитов (как было изначально). Для оплативших «без рекламы» —
+   сперва бесплатный дневной лимит, после исчерпания — тоже реклама. */
+function watchAdOrFree(cat,placement,cb){
+  if(!db.noAds){watchAd(placement,cb);return;}
+  if(freeLeft(cat)>0){useFreeAction(cat,cb);return;}
+  watchAd(placement,cb,true);
+}
+function watchAd(placement,cb,force){
   Ads.showRewarded(function(ok){
     if(ok){TGW.haptic('ok');DBSaved();}
     cb(ok);
-  });
+  },force);
 }
 
 var Wallet={
@@ -2687,6 +2720,8 @@ function offerBooster(k){
   });
 }
 function openShop(){
+  var tagFC=$('#tagFreeCoins');
+  if(tagFC)tagFC.textContent=db.noAds?(freeLeft('gold')>0?('FREE '+freeLeft('gold')+'/'+FREE_DAILY_LIMIT):'AD'):'AD';
   var box=$('#shopRows');box.innerHTML='';
   Object.keys(BOOSTS).forEach(function(k){
     var b=BOOSTS[k],req=BOOST_REQ[k],open=db.unlocked>=req;
@@ -2696,7 +2731,7 @@ function openShop(){
       btns='<div class="sbtns">'+
         '<button class="btn primary buy">'+b.price+' <svg class="ic"><use href="#i-coin"/></svg></button>'+
         '<button class="btn adbuy" style="border-style:dashed"><svg class="ic"><use href="#i-play"/></svg>'+
-        (db.noAds?'':'<span class="ad-txt">AD</span>')+'+1</button></div>';
+        (db.noAds?(freeLeft('bonus')>0?'<span class="ad-txt">FREE '+freeLeft('bonus')+'/'+FREE_DAILY_LIMIT+'</span>':'<span class="ad-txt">AD</span>'):'<span class="ad-txt">AD</span>')+'+1</button></div>';
     }else{
       btns='<span class="locknote">откроется<br>на ур.'+req+'</span>';
     }
@@ -2705,7 +2740,7 @@ function openShop(){
     if(open){
       row.querySelector('.buy').onclick=function(){offerBooster(k);};
       row.querySelector('.adbuy').onclick=function(){
-        watchAd('booster_'+k,function(ok){
+        watchAdOrFree('bonus','booster_'+k,function(ok){
           if(!ok)return;
           db.boost[k]++;DBSaved();updateBoosters();SND.play('coin');
           toast(b.name+': +1');openShop();
@@ -2719,6 +2754,8 @@ function openShop(){
 
 var energyIv=null;
 function startEnergyTimer(){
+  var tag=$('#tagRefillEnergy');
+  if(tag)tag.textContent=db.noAds?(freeLeft('energy')>0?('FREE '+freeLeft('energy')+'/'+FREE_DAILY_LIMIT):'AD'):'AD';
   if(energyIv)clearInterval(energyIv);
   energyIv=setInterval(function(){
     if(!$('#mEnergy').classList.contains('open')){clearInterval(energyIv);energyIv=null;return;}
@@ -2807,7 +2844,7 @@ function bindUI(){
 
   /* энергия */
   on('btnRefillEnergy',function(){
-    watchAd('refill_energy',function(ok){
+    watchAdOrFree('energy','refill_energy',function(ok){
       if(!ok)return;
       db.energy=MAX_ENERGY;db.energyTs=0;DBSaved();
       closeModal('mEnergy');updateEnergyUI();
@@ -2932,7 +2969,7 @@ function bindUI(){
   on('btnBoardRefresh',function(){renderBoardRows(null);lbFetch(renderBoardRows);});
 
   on('btnFreeCoins',function(){
-    watchAd('free_coins',function(ok){
+    watchAdOrFree('gold','free_coins',function(ok){
       if(!ok)return;
       db.coins+=100;DBSaved();SND.play('coin');renderCoins();
       toast('+100 золота');
