@@ -36,7 +36,8 @@ const TON_ADDR = process.env.TON_ADDR || '';              // ваш TON-коше
 const TON_MIN_NANO = parseInt(process.env.TON_MIN_NANO || '1500000000', 10); // 1.5 TON
 const TONAPI_KEY = process.env.TONAPI_KEY || '';          // необязательно, снимает лимиты tonapi.io
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';        // пароль для /api/stats и stats.html
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*'; // домен вашего Mini App
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGIN || '*')
+  .split(',').map(s => s.trim()).filter(Boolean); // домен(ы) вашего Mini App, через запятую
 
 if (!BOT_TOKEN) console.warn('[warn] BOT_TOKEN не задан — проверка initData и Stars не будут работать');
 if (!TON_ADDR) console.warn('[warn] TON_ADDR не задан — проверка TON-платежей не будет работать');
@@ -44,7 +45,13 @@ if (!ADMIN_TOKEN) console.warn('[warn] ADMIN_TOKEN не задан — пане�
 
 /* ── CORS: разрешаем запросы из Mini App ── */
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes('*')) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Init-Data');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -340,6 +347,44 @@ function readEvents(limit) {
   for (const l of slice) { try { out.push(JSON.parse(l)); } catch (e) {} }
   return out;
 }
+
+/* ═══ Админ: сброс тестовых данных ═══
+   POST /api/admin/reset?token=ADMIN_TOKEN
+   Тело (необязательно): {"scope":"payments"} или {"scope":"leaderboard"}
+   или {"scope":"all"} (по умолчанию). Можно ограничить одним игроком:
+   {"uid":"tg12345678"} — тогда чистит только его. */
+app.post('/api/admin/reset', express.json(), async (req, res) => {
+  if (!ADMIN_TOKEN || req.query.token !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+  const scope = (req.body && req.body.scope) || 'all';
+  const uid = req.body && req.body.uid;
+  try {
+    if (scope === 'payments' || scope === 'all') {
+      if (uid) {
+        if (USE_REDIS) await redisCmd('DEL', 'paid:' + uid);
+        else { const db = readJsonFile(PAID_FILE); delete db[uid]; writeJsonFile(PAID_FILE, db); }
+      } else if (USE_REDIS) {
+        const keys = await redisCmd('KEYS', 'paid:*');
+        for (const k of (keys || [])) await redisCmd('DEL', k);
+      } else {
+        writeJsonFile(PAID_FILE, {});
+      }
+    }
+    if (scope === 'leaderboard' || scope === 'all') {
+      if (uid) {
+        if (USE_REDIS) await redisCmd('HDEL', 'leaderboard', uid);
+        else { const db = readJsonFile(LEADERBOARD_FILE); delete db[uid]; writeJsonFile(LEADERBOARD_FILE, db); }
+      } else if (USE_REDIS) {
+        await redisCmd('DEL', 'leaderboard');
+      } else {
+        writeJsonFile(LEADERBOARD_FILE, {});
+      }
+    }
+    res.json({ ok: true, scope, uid: uid || 'all' });
+  } catch (e) {
+    console.error('admin reset failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.get('/api/stats', async (req, res) => {
   if (ADMIN_TOKEN && req.query.token !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
