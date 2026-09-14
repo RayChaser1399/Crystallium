@@ -2950,7 +2950,7 @@ function bindUI(){
   on('btnCheckPaid',function(){SND.play('click');checkPaid();});
 
   on('btnAboutShare',function(){
-    var url='https://t.me/share/url?url='+encodeURIComponent(location.href)+'&text='+encodeURIComponent('Кристаллиум — алхимическая головоломка! 300 уровней и бесконечный режим.');
+    var url='https://t.me/share/url?url='+encodeURIComponent('https://t.me/crystalliumgame_bot')+'&text='+encodeURIComponent('Кристаллиум — алхимическая головоломка! 300 уровней и бесконечный режим.');
     if(TGW.api&&TGW.api.openTelegramLink)TGW.api.openTelegramLink(url);
     else window.open(url,'_blank');
   });
