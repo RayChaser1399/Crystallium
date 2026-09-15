@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Crystallium — статистика</title>
+<title>Кристаллиум — статистика</title>
 <style>
   :root{--bg:#0b0e1a;--panel:#131829;--line:#232b45;--text:#eef1fb;--sub:#8992b3;--gold:#f2c14e;--good:#3ecf7e;--bad:#ff5d6c}
   *{box-sizing:border-box}
@@ -18,21 +18,34 @@
   .card b{display:block;font-size:24px;margin-bottom:2px}
   .card span{color:var(--sub);font-size:12px}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:20px}
-  .panel h2{font-size:14px;margin:0 0 12px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
+  .panel h2{font-size:14px;margin:0 0 12px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+  .panel h2 small{text-transform:none;letter-spacing:0;font-weight:400;color:var(--sub);font-size:11px}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
-  th{color:var(--sub);font-weight:600}
-  .bad{color:var(--bad)}.good{color:var(--good)}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--sub);font-weight:600;position:sticky;top:0;background:var(--panel)}
+  .bad{color:var(--bad)}.good{color:var(--good)}.gold{color:var(--gold)}
   canvas{width:100%;height:140px;display:block}
   .topbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
   .err{color:var(--bad);margin-top:10px;font-size:13px}
   .hidden{display:none}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:700px){.two-col{grid-template-columns:1fr}}
+  .tbl-wrap{max-height:340px;overflow:auto}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700}
+  .badge.warn{background:rgba(255,93,108,.15);color:var(--bad)}
+  .empty{color:var(--sub);font-size:13px;padding:8px 0}
+  .funnel-bar{background:var(--line);border-radius:6px;height:20px;position:relative;overflow:hidden;min-width:80px}
+  .funnel-fill{background:var(--gold);height:100%}
+  .funnel-row{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:12.5px}
+  .funnel-row .lbl{width:70px;flex-shrink:0;color:var(--sub)}
+  .funnel-row .val{width:46px;flex-shrink:0;text-align:right;font-weight:700}
 </style>
 </head>
 <body>
 
 <div id="gate" class="gate">
-  <h1>Crystallium</h1>
+  <h1>Кристаллиум</h1>
   <p class="sub">Панель статистики. Введите admin-токен (ADMIN_TOKEN из .env сервера).</p>
   <input id="tokenInput" type="password" placeholder="Токен доступа" autocomplete="off">
   <button id="btnEnter">Войти</button>
@@ -42,10 +55,11 @@
 <div id="dash" class="hidden">
   <div class="topbar">
     <div>
-      <h1>Crystallium — статистика</h1>
+      <h1>Кристаллиум — статистика</h1>
       <p class="sub" id="lastUpdate">—</p>
     </div>
     <button class="refresh" id="btnRefresh">Обновить</button>
+    <a href="/admin.html" style="color:var(--sub);font-size:13px;text-decoration:none;margin-left:8px">→ Модерация игроков</a>
   </div>
 
   <div class="grid" id="cards"></div>
@@ -55,85 +69,244 @@
     <canvas id="dauChart" width="900" height="140"></canvas>
   </div>
 
-  <div class="panel">
-    <h2>Самые сложные уровни (низкий % побед)</h2>
-    <table id="dropTable"><thead><tr><th>Уровень</th><th>Стартов</th><th>Побед</th><th>% побед</th></tr></thead><tbody></tbody></table>
+  <div class="two-col">
+    <div class="panel">
+      <h2>Страны игроков</h2>
+      <div class="tbl-wrap">
+        <table id="countryTable"><thead><tr><th>Страна</th><th>Игроков</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Устройства и платформы</h2>
+      <div class="tbl-wrap">
+        <table id="platformTable"><thead><tr><th>Платформа</th><th>Сессий</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="panel">
+      <h2>Удержание игроков</h2>
+      <div class="grid" id="retentionCards"></div>
+    </div>
+    <div class="panel">
+      <h2>Активность сегодня</h2>
+      <div class="grid" id="todayCards"></div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="panel">
+      <h2>Покупки и примерная выручка</h2>
+      <table id="purchaseTable"><thead><tr><th>Способ</th><th>Количество</th></tr></thead><tbody></tbody></table>
+      <p class="sub" id="revenueNote" style="margin-top:10px"></p>
+    </div>
+    <div class="panel">
+      <h2>Сессии</h2>
+      <div class="grid" id="sessionCards"></div>
+    </div>
   </div>
 
   <div class="panel">
-    <h2>Покупки</h2>
-    <table id="purchaseTable"><thead><tr><th>Способ</th><th>Количество</th></tr></thead><tbody></tbody></table>
+    <h2>⚠ Подозрительные IP <small>3+ разных Telegram-аккаунта с одного адреса — возможная ботоферма</small></h2>
+    <div class="tbl-wrap">
+      <table id="suspiciousTable"><thead><tr><th>IP</th><th>Страна</th><th>Аккаунтов</th><th>Событий</th><th>ID аккаунтов</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Воронка прохождения кампании <small>сколько игроков дошли хотя бы до этого уровня</small></h2>
+    <div id="funnelBox"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Самые сложные уровни кампании <small>низкий % побед</small></h2>
+    <div class="tbl-wrap">
+      <table id="dropTable"><thead><tr><th>Уровень</th><th>Стартов</th><th>Побед</th><th>% побед</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="panel">
+      <h2>Бесконечный режим</h2>
+      <div class="grid" id="endlessCards" style="margin-bottom:12px"></div>
+      <canvas id="endlessChart" width="450" height="120"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Топ игроков — бесконечный режим</h2>
+      <div class="tbl-wrap">
+        <table id="topEndlessTable"><thead><tr><th>#</th><th>Игрок</th><th>Telegram ID</th><th>Волн</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Топ игроков — кампания <small>по числу пройденных уровней</small></h2>
+    <div class="tbl-wrap">
+      <table id="topLevelsTable"><thead><tr><th>#</th><th>Игрок</th><th>Telegram ID</th><th>Пройдено уровней</th><th>Макс. уровень</th></tr></thead><tbody></tbody></table>
+    </div>
   </div>
 
   <div class="panel">
     <h2>Все события</h2>
-    <table id="eventsTable"><thead><tr><th>Событие</th><th>Количество</th></tr></thead><tbody></tbody></table>
+    <div class="tbl-wrap">
+      <table id="eventsTable"><thead><tr><th>Событие</th><th>Количество</th></tr></thead><tbody></tbody></table>
+    </div>
   </div>
 </div>
 
 <script>
 var TOKEN = sessionStorage.getItem('crys_admin_token') || '';
 
-function fmtDate(ts){ if(!ts) return '—'; return new Date(ts).toLocaleString(); }
+function fmtDate(ts){ if(!ts) return '—'; return new Date(ts).toLocaleString('ru-RU'); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function flagEmoji(code){
+  if(!code || code.length!==2) return '';
+  var cc = code.toUpperCase();
+  return String.fromCodePoint(...[...cc].map(function(c){return 127397 + c.charCodeAt(0);}));
+}
 
-function drawBars(canvas, data){
+function drawBars(canvas, data, labelKey, valueKey, color){
   var ctx = canvas.getContext('2d');
   var w = canvas.width = canvas.clientWidth || 900;
   var h = canvas.height;
   ctx.clearRect(0,0,w,h);
-  if(!data.length){ ctx.fillStyle='#8992b3'; ctx.fillText('Нет данных', 10, 20); return; }
-  var max = Math.max.apply(null, data.map(function(d){return d.users;})) || 1;
+  if(!data.length){ ctx.fillStyle='#8992b3'; ctx.font='12px sans-serif'; ctx.fillText('Нет данных', 10, 20); return; }
+  var max = Math.max.apply(null, data.map(function(d){return d[valueKey];})) || 1;
   var bw = w / data.length;
   ctx.font = '10px sans-serif';
   data.forEach(function(d, i){
-    var bh = (d.users / max) * (h - 30);
+    var val = d[valueKey];
+    var bh = (val / max) * (h - 30);
     var x = i * bw + 2;
-    ctx.fillStyle = '#f2c14e';
+    ctx.fillStyle = color || '#f2c14e';
     ctx.fillRect(x, h - bh - 20, bw - 4, bh);
     ctx.fillStyle = '#8992b3';
     ctx.save();
     ctx.translate(x + (bw-4)/2, h - 4);
     ctx.rotate(-Math.PI/3);
-    ctx.fillText(d.day.slice(5), 0, 0);
+    ctx.fillText(String(d[labelKey]).slice(0,8), 0, 0);
     ctx.restore();
     ctx.fillStyle = '#eef1fb';
-    ctx.fillText(d.users, x, h - bh - 24);
+    ctx.fillText(val, x, h - bh - 24);
   });
 }
 
 function render(s){
+  var totalPurchases = (s.purchases.ton||0)+(s.purchases.usdt||0)+(s.purchases.stars||0);
   var cards = [
     {v:s.uniqueUsers, l:'Уникальных игроков'},
     {v:s.totalEvents, l:'Всего событий'},
     {v:s.ads.completionRate+'%', l:'Досмотров рекламы'},
-    {v:s.paidTotal, l:'Оплативших "без рекламы"'},
-    {v:(s.purchases.ton||0)+(s.purchases.usdt||0)+(s.purchases.stars||0), l:'Подтверждённых покупок'},
+    {v:s.paidTotal, l:'Купили «без рекламы»'},
+    {v:totalPurchases, l:'Подтверждённых покупок'},
+    {v:s.suspiciousIPs.length, l:'Подозрительных IP', cls: s.suspiciousIPs.length ? 'bad' : ''},
   ];
   document.getElementById('cards').innerHTML = cards.map(function(c){
-    return '<div class="card"><b>'+c.v+'</b><span>'+c.l+'</span></div>';
+    return '<div class="card"><b class="'+(c.cls||'')+'">'+c.v+'</b><span>'+c.l+'</span></div>';
   }).join('');
 
   document.getElementById('lastUpdate').textContent = 'Последнее событие: ' + fmtDate(s.lastEventAt);
 
-  drawBars(document.getElementById('dauChart'), s.dau);
+  drawBars(document.getElementById('dauChart'), s.dau, 'day', 'users');
 
-  var dropBody = document.querySelector('#dropTable tbody');
-  dropBody.innerHTML = s.dropOff.map(function(d){
-    var cls = d.winRate < 30 ? 'bad' : d.winRate > 70 ? 'good' : '';
-    return '<tr><td>'+(d.level+1)+'</td><td>'+d.starts+'</td><td>'+d.wins+'</td><td class="'+cls+'">'+d.winRate+'%</td></tr>';
-  }).join('') || '<tr><td colspan="4">Нет данных</td></tr>';
+  // страны
+  var cBody = document.querySelector('#countryTable tbody');
+  cBody.innerHTML = s.byCountry.length ? s.byCountry.map(function(c){
+    return '<tr><td>'+flagEmoji(c.countryCode)+' '+esc(c.country)+'</td><td>'+c.users+'</td></tr>';
+  }).join('') : '<tr><td colspan="2" class="empty">Пока нет данных о странах</td></tr>';
 
+  // устройства/платформы
+  var plBody = document.querySelector('#platformTable tbody');
+  var plLabels = {ios:'iOS', android:'Android', tdesktop:'Telegram Desktop', web:'Веб', weba:'Веб (Android)', webk:'Веб (iOS)', macos:'macOS', unigram:'Unigram', unknown:'Неизвестно'};
+  var pl = s.byPlatform||[];
+  plBody.innerHTML = pl.length ? pl.map(function(p){
+    return '<tr><td>'+(plLabels[p.platform]||esc(p.platform))+'</td><td>'+p.count+'</td></tr>';
+  }).join('') : '<tr><td colspan="2" class="empty">Нет данных</td></tr>';
+
+  // удержание
+  var ret = s.retention||{};
+  document.getElementById('retentionCards').innerHTML = [
+    {v: ret.d1!=null ? ret.d1+'%' : '—', l:'D1 (вернулись через день)'+(ret.d1Sample?' · '+ret.d1Sample+' игроков':'')},
+    {v: ret.d7!=null ? ret.d7+'%' : '—', l:'D7 (вернулись через неделю)'+(ret.d7Sample?' · '+ret.d7Sample+' игроков':'')}
+  ].map(function(c){return '<div class="card"><b>'+c.v+'</b><span>'+c.l+'</span></div>';}).join('');
+
+  // сегодня
+  var nvr = s.newVsReturningToday||{newToday:0,returningToday:0};
+  document.getElementById('todayCards').innerHTML = [
+    {v:nvr.newToday, l:'Новых сегодня'},
+    {v:nvr.returningToday, l:'Вернувшихся сегодня'}
+  ].map(function(c){return '<div class="card"><b>'+c.v+'</b><span>'+c.l+'</span></div>';}).join('');
+
+  // сессии
+  document.getElementById('sessionCards').innerHTML = [
+    {v:(s.avgSessionMinutes||0)+' мин', l:'Средняя длительность сессии'}
+  ].map(function(c){return '<div class="card"><b>'+c.v+'</b><span>'+c.l+'</span></div>';}).join('');
+
+  // покупки + выручка
   var pBody = document.querySelector('#purchaseTable tbody');
   var labels = {ton:'TON', usdt:'USDT', stars:'Telegram Stars', demo_unverified:'Демо (без сервера)'};
   pBody.innerHTML = Object.keys(s.purchases).map(function(k){
     return '<tr><td>'+(labels[k]||k)+'</td><td>'+s.purchases[k]+'</td></tr>';
   }).join('');
+  var rev = s.revenueEstimate || {};
+  document.getElementById('revenueNote').textContent =
+    '≈ ' + (rev.tonAmount||0).toFixed(2) + ' TON + ' + (rev.starsAmount||0) + ' ★ — ' + (rev.note||'');
 
+  // подозрительные IP
+  var susBody = document.querySelector('#suspiciousTable tbody');
+  susBody.innerHTML = s.suspiciousIPs.length ? s.suspiciousIPs.map(function(r){
+    return '<tr><td class="mono">'+esc(r.ip)+'</td><td>'+esc(r.country)+'</td>'+
+      '<td><span class="badge warn">'+r.uniqueAccounts+'</span></td><td>'+r.events+'</td>'+
+      '<td class="mono">'+r.accounts.map(esc).join(', ')+'</td></tr>';
+  }).join('') : '<tr><td colspan="5" class="empty">Подозрительной активности не найдено</td></tr>';
+
+  // воронка
+  var funnelBox = document.getElementById('funnelBox');
+  var maxFunnel = s.campaignFunnel.length ? s.campaignFunnel[0].players : 0;
+  funnelBox.innerHTML = s.campaignFunnel.map(function(f){
+    var pct = maxFunnel ? Math.round(f.players/maxFunnel*100) : 0;
+    return '<div class="funnel-row"><span class="lbl">ур. '+f.level+'</span>'+
+      '<div class="funnel-bar"><div class="funnel-fill" style="width:'+pct+'%"></div></div>'+
+      '<span class="val">'+f.players+'</span></div>';
+  }).join('') || '<div class="empty">Нет данных</div>';
+
+  // сложные уровни
+  var dropBody = document.querySelector('#dropTable tbody');
+  dropBody.innerHTML = s.dropOff.length ? s.dropOff.map(function(d){
+    var cls = d.winRate < 30 ? 'bad' : d.winRate > 70 ? 'good' : '';
+    return '<tr><td>'+(d.level+1)+'</td><td>'+d.starts+'</td><td>'+d.wins+'</td><td class="'+cls+'">'+d.winRate+'%</td></tr>';
+  }).join('') : '<tr><td colspan="4" class="empty">Нет данных</td></tr>';
+
+  // бесконечный режим
+  var en = s.endless || {};
+  document.getElementById('endlessCards').innerHTML = [
+    {v:en.sessions||0, l:'Заходов в режим'},
+    {v:en.avgWavesPerSession||0, l:'Волн за заход, в среднем'},
+    {v:en.maxWaveReached||0, l:'Рекордная волна'}
+  ].map(function(c){return '<div class="card"><b>'+c.v+'</b><span>'+c.l+'</span></div>';}).join('');
+  drawBars(document.getElementById('endlessChart'), en.distribution||[], 'wave', 'players', '#8a6cff');
+
+  // топ по бесконечному
+  var teBody = document.querySelector('#topEndlessTable tbody');
+  var top1 = s.topPlayers.byEndlessWaves||[];
+  teBody.innerHTML = top1.length ? top1.map(function(r,i){
+    return '<tr><td>'+(i+1)+'</td><td>'+esc(r.name)+'</td><td class="mono">'+esc(r.id)+'</td><td class="gold">'+r.best+'</td></tr>';
+  }).join('') : '<tr><td colspan="4" class="empty">Пока никто не играл</td></tr>';
+
+  // топ по кампании
+  var tlBody = document.querySelector('#topLevelsTable tbody');
+  var top2 = s.topPlayers.byLevelsCompleted||[];
+  tlBody.innerHTML = top2.length ? top2.map(function(r,i){
+    return '<tr><td>'+(i+1)+'</td><td>'+esc(r.name)+'</td><td class="mono">'+esc(r.uid)+'</td><td class="gold">'+r.levelsCompleted+'</td><td>'+r.maxLevel+'</td></tr>';
+  }).join('') : '<tr><td colspan="5" class="empty">Пока никто не играл</td></tr>';
+
+  // все события
   var eBody = document.querySelector('#eventsTable tbody');
   var types = Object.keys(s.byType).sort(function(a,b){return s.byType[b]-s.byType[a];});
   eBody.innerHTML = types.map(function(k){
-    return '<tr><td>'+k+'</td><td>'+s.byType[k]+'</td></tr>';
-  }).join('');
+    return '<tr><td>'+esc(k)+'</td><td>'+s.byType[k]+'</td></tr>';
+  }).join('') || '<tr><td colspan="2" class="empty">Нет данных</td></tr>';
 }
 
 function load(){
