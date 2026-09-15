@@ -198,14 +198,28 @@ async function markPaid(uid, method, amount) {
   writeJsonFile(PAID_FILE, db);
 }
 
+const EVENTS_LOG_CAP = 50000; // сколько последних событий храним
+
 async function appendEvents(events) {
-  // Аналитика не денежно-критична: при отсутствии Redis просто копится
-  // в локальном файле и переживёт только до следующего деплоя — это
-  // осознанный компромисс, чтобы не тратить лимиты бесплатной базы на
-  // менее важные данные. Хотите переживающую деплои аналитику —
-  // напишите, подключим то же Redis-хранилище и для событий.
+  if (USE_REDIS) {
+    const lines = events.map(e => JSON.stringify(e));
+    if (!lines.length) return;
+    await redisCmd('LPUSH', 'events_log', ...lines);
+    await redisCmd('LTRIM', 'events_log', 0, EVENTS_LOG_CAP - 1);
+    return;
+  }
   const lines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
   fs.appendFileSync(EVENTS_FILE, lines);
+}
+
+async function readEventsAsync(limit) {
+  if (USE_REDIS) {
+    const raw = await redisCmd('LRANGE', 'events_log', 0, (limit || EVENTS_LOG_CAP) - 1);
+    const out = [];
+    for (const line of (raw || [])) { try { out.push(JSON.parse(line)); } catch (e) {} }
+    return out;
+  }
+  return readEvents(limit);
 }
 
 async function getLeaderboardEntry(uid) {
@@ -476,7 +490,7 @@ app.get('/api/admin/players/search', async (req, res) => {
   if (!ADMIN_TOKEN || req.query.token !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
   const q = String(req.query.q || '').trim().toLowerCase();
   if (!q) return res.json({ results: [] });
-  const events = readEvents(50000);
+  const events = await readEventsAsync(50000);
   const seen = new Map(); // uid -> {uid, name, lastSeen}
   for (const e of events) {
     if (!e.uid) continue;
@@ -499,7 +513,7 @@ app.get('/api/admin/player/:uid', async (req, res) => {
   const uid = req.params.uid;
   try {
     const mod = await getPlayerMod(uid);
-    const events = readEvents(50000).filter(e => e.uid === uid);
+    const events = (await readEventsAsync(50000)).filter(e => e.uid === uid);
     let name = uid, country = '', countryCode = '', platform = '', lastSeen = 0;
     let lastCoins = null, lastLevel = null, lastEndlessWave = null;
     for (const e of events) {
@@ -593,7 +607,7 @@ app.post('/api/admin/reset', express.json(), async (req, res) => {
 app.get('/api/stats', async (req, res) => {
   if (ADMIN_TOKEN && req.query.token !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
 
-  const events = readEvents(50000); // последние 50k событий — с запасом для дашборда
+  const events = await readEventsAsync(50000); // последние 50k событий — с запасом для дашборда
   const byType = {};
   const dailyActive = {}; // day -> Set(uid)
   const usersSeen = new Set();
