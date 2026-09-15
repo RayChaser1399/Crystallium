@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Кристаллиум — модерация игроков</title>
+<style>
+  :root{--bg:#0b0e1a;--panel:#131829;--line:#232b45;--text:#eef1fb;--sub:#8992b3;--gold:#f2c14e;--good:#3ecf7e;--bad:#ff5d6c}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;padding:20px}
+  h1{font-size:20px;margin:0 0 4px}
+  h2{font-size:14px;margin:0 0 12px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
+  .sub{color:var(--sub);font-size:13px;margin:0 0 20px}
+  .gate{max-width:360px;margin:80px auto;text-align:center}
+  .gate input{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:12px;font-size:15px;margin:12px 0}
+  button{background:var(--gold);border:none;border-radius:10px;color:#1a1300;font-weight:700;padding:10px 16px;font-size:14px;cursor:pointer}
+  button.secondary{background:var(--panel);color:var(--text);border:1px solid var(--line)}
+  button.danger{background:var(--bad);color:#fff}
+  button:disabled{opacity:.5;cursor:default}
+  input[type=text],textarea{width:100%;background:#0d1120;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:10px 12px;font-size:14px;font-family:inherit}
+  textarea{resize:vertical;min-height:70px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:20px}
+  .search-row{display:flex;gap:8px;margin-bottom:14px}
+  .search-row input{flex:1}
+  .result-row{display:flex;justify-content:space-between;align-items:center;padding:9px 10px;border-radius:10px;cursor:pointer;gap:10px}
+  .result-row:hover{background:#0d1120}
+  .result-row .name{font-weight:600;font-size:13.5px}
+  .result-row .uid{color:var(--sub);font-size:11.5px;font-family:ui-monospace,monospace}
+  .result-row .seen{color:var(--sub);font-size:11px;flex-shrink:0}
+  .hidden{display:none}
+  .card{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px}
+  .stat{background:#0d1120;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .stat b{display:block;font-size:17px}
+  .stat span{color:var(--sub);font-size:11px}
+  .row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .row .lbl{font-size:13.5px}
+  .switch{width:44px;height:24px;border-radius:999px;background:var(--line);position:relative;cursor:pointer;border:none;flex-shrink:0}
+  .switch.on{background:var(--good)}
+  .switch::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s}
+  .switch.on::after{left:23px}
+  .ban-switch.on{background:var(--bad)}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
+  .badge.banned{background:rgba(255,93,108,.18);color:var(--bad)}
+  .badge.blocked{background:rgba(242,193,78,.18);color:var(--gold)}
+  .badge.ok{background:rgba(62,207,126,.18);color:var(--good)}
+  .flagged-row{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:10px;cursor:pointer;border:1px solid var(--line);margin-bottom:8px}
+  .flagged-row:hover{background:#0d1120}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--good);color:#06210f;padding:10px 18px;border-radius:10px;font-weight:700;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .err{color:var(--bad);margin-top:10px;font-size:13px}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate">
+  <h1>Кристаллиум</h1>
+  <p class="sub">Модерация игроков. Введите admin-токен.</p>
+  <input id="tokenInput" type="password" placeholder="Токен доступа" autocomplete="off">
+  <button id="btnEnter">Войти</button>
+  <div id="gateErr" class="err"></div>
+</div>
+
+<div id="dash" class="hidden">
+  <h1>Модерация игроков</h1>
+  <p class="sub">Поиск по Telegram ID или имени, бан, блокировка отдельных функций. <a href="/stats.html" style="color:var(--gold)">← К статистике</a></p>
+
+  <div class="panel">
+    <h2>Поиск игрока</h2>
+    <div class="search-row">
+      <input type="text" id="searchInput" placeholder="Telegram ID (tg123456789) или имя">
+      <button id="btnSearch">Найти</button>
+    </div>
+    <div id="searchResults"></div>
+  </div>
+
+  <div class="panel" id="playerPanel" style="display:none">
+    <h2>Карточка игрока</h2>
+    <div id="playerHeader"></div>
+    <div class="card" id="playerStats"></div>
+
+    <div class="row">
+      <span class="lbl"><b>🚫 Бан</b> — полностью блокирует оплату и рейтинг</span>
+      <button class="switch ban-switch" id="swBanned"></button>
+    </div>
+    <div id="banReasonBox" style="margin:8px 0">
+      <input type="text" id="banReasonInput" placeholder="Причина бана (видна только вам)">
+    </div>
+
+    <div class="row"><span class="lbl">Рейтинг лестницы</span><button class="switch" id="swLeaderboard"></button></div>
+    <div class="row"><span class="lbl">Оплата / «без рекламы»</span><button class="switch" id="swPayments"></button></div>
+    <div class="row"><span class="lbl">Награды за рекламу</span><button class="switch" id="swAdsReward"></button></div>
+    <div class="row"><span class="lbl">Бесконечный режим</span><button class="switch" id="swEndless"></button></div>
+
+    <label class="sub" style="display:block;margin-top:12px">Заметки (видны только вам)</label>
+    <textarea id="notesInput" placeholder="Например: жаловались другие игроки на читы в рейтинге…"></textarea>
+
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button id="btnSave">Сохранить</button>
+      <button class="secondary" id="btnClose">Закрыть карточку</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Забаненные / ограниченные игроки</h2>
+    <div id="flaggedList"><p class="sub">Загрузка…</p></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var TOKEN = sessionStorage.getItem('crys_admin_token') || '';
+var currentUid = null;
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){return {'&':'&lt;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function fmtDate(ts){ if(!ts) return '—'; return new Date(ts).toLocaleString('ru-RU'); }
+function showToast(msg){
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 1800);
+}
+function api(path, opts){
+  opts = opts || {};
+  var url = path + (path.indexOf('?')>=0?'&':'?') + 'token=' + encodeURIComponent(TOKEN);
+  return fetch(url, opts).then(function(r){
+    if(r.status === 401) throw new Error('Неверный токен');
+    return r.json().then(function(d){ if(!r.ok) throw new Error(d.error||('HTTP '+r.status)); return d; });
+  });
+}
+
+document.getElementById('btnEnter').onclick = function(){
+  TOKEN = document.getElementById('tokenInput').value.trim();
+  sessionStorage.setItem('crys_admin_token', TOKEN);
+  enterDash();
+};
+document.getElementById('tokenInput').addEventListener('keydown', function(e){
+  if(e.key === 'Enter') document.getElementById('btnEnter').click();
+});
+
+function enterDash(){
+  api('/api/admin/players').then(function(){
+    document.getElementById('gate').classList.add('hidden');
+    document.getElementById('dash').classList.remove('hidden');
+    loadFlagged();
+  }).catch(function(e){
+    sessionStorage.removeItem('crys_admin_token');
+    document.getElementById('gateErr').textContent = e.message;
+  });
+}
+if(TOKEN) enterDash();
+
+document.getElementById('btnSearch').onclick = doSearch;
+document.getElementById('searchInput').addEventListener('keydown', function(e){
+  if(e.key === 'Enter') doSearch();
+});
+function doSearch(){
+  var q = document.getElementById('searchInput').value.trim();
+  if(!q) return;
+  api('/api/admin/players/search?q=' + encodeURIComponent(q)).then(function(d){
+    var box = document.getElementById('searchResults');
+    if(!d.results.length){ box.innerHTML = '<p class="sub">Ничего не найдено — игрок ещё не заходил в игру или не присылал события.</p>'; return; }
+    box.innerHTML = d.results.map(function(r){
+      return '<div class="result-row" data-uid="'+esc(r.uid)+'">'+
+        '<div><div class="name">'+esc(r.name||r.uid)+'</div><div class="uid">'+esc(r.uid)+'</div></div>'+
+        '<div class="seen">'+fmtDate(r.lastSeen)+'</div></div>';
+    }).join('');
+    box.querySelectorAll('.result-row').forEach(function(row){
+      row.onclick = function(){ openPlayer(row.getAttribute('data-uid')); };
+    });
+  }).catch(function(e){ showToast('Ошибка: '+e.message); });
+}
+
+function openPlayer(uid){
+  currentUid = uid;
+  api('/api/admin/player/' + encodeURIComponent(uid)).then(function(d){
+    document.getElementById('playerPanel').style.display = 'block';
+    document.getElementById('playerPanel').scrollIntoView({behavior:'smooth', block:'start'});
+
+    var statusBadges = '';
+    if(d.moderation.banned) statusBadges += '<span class="badge banned">ЗАБАНЕН</span> ';
+    else if((d.moderation.blockedFeatures||[]).length) statusBadges += '<span class="badge blocked">ЕСТЬ ОГРАНИЧЕНИЯ</span> ';
+    else statusBadges += '<span class="badge ok">без ограничений</span>';
+
+    document.getElementById('playerHeader').innerHTML =
+      '<h3 style="margin:0 0 4px">'+esc(d.name)+'</h3>'+
+      '<p class="mono sub" style="margin:0 0 8px">'+esc(d.uid)+'</p>'+
+      statusBadges;
+
+    document.getElementById('playerStats').innerHTML = [
+      {v: d.lastLevel!=null ? d.lastLevel : '—', l:'Уровень'},
+      {v: d.lastCoins!=null ? d.lastCoins : '—', l:'Золото (посл.)'},
+      {v: d.lastEndlessWave!=null ? d.lastEndlessWave : '—', l:'Волна (посл.)'},
+      {v: d.leaderboardBest || 0, l:'Рекорд волн'},
+      {v: d.paid ? '✓ '+(d.paidMethod||'') : '—', l:'Оплата'},
+      {v: (d.country?flagEmoji(d.countryCode)+' ':'')+(d.country||'—'), l:'Страна'},
+      {v: d.platform || '—', l:'Платформа'},
+      {v: d.eventsCount, l:'Событий'},
+      {v: fmtDate(d.lastSeen), l:'Последний визит'},
+    ].map(function(c){return '<div class="stat"><b>'+c.v+'</b><span>'+c.l+'</span></div>';}).join('');
+
+    setSwitch('swBanned', d.moderation.banned);
+    document.getElementById('banReasonInput').value = d.moderation.banReason || '';
+    var feats = d.moderation.blockedFeatures || [];
+    setSwitch('swLeaderboard', feats.includes('leaderboard'));
+    setSwitch('swPayments', feats.includes('payments'));
+    setSwitch('swAdsReward', feats.includes('ads_reward'));
+    setSwitch('swEndless', feats.includes('endless'));
+    document.getElementById('notesInput').value = d.moderation.notes || '';
+  }).catch(function(e){ showToast('Ошибка: '+e.message); });
+}
+
+function flagEmoji(code){
+  if(!code || code.length!==2) return '';
+  var cc = code.toUpperCase();
+  return String.fromCodePoint(...[...cc].map(function(c){return 127397 + c.charCodeAt(0);}));
+}
+
+function setSwitch(id, on){
+  var el = document.getElementById(id);
+  el.classList.toggle('on', !!on);
+}
+['swBanned','swLeaderboard','swPayments','swAdsReward','swEndless'].forEach(function(id){
+  document.getElementById(id).onclick = function(){ this.classList.toggle('on'); };
+});
+
+document.getElementById('btnClose').onclick = function(){
+  document.getElementById('playerPanel').style.display = 'none';
+  currentUid = null;
+};
+
+document.getElementById('btnSave').onclick = function(){
+  if(!currentUid) return;
+  var feats = [];
+  if(document.getElementById('swLeaderboard').classList.contains('on')) feats.push('leaderboard');
+  if(document.getElementById('swPayments').classList.contains('on')) feats.push('payments');
+  if(document.getElementById('swAdsReward').classList.contains('on')) feats.push('ads_reward');
+  if(document.getElementById('swEndless').classList.contains('on')) feats.push('endless');
+  var patch = {
+    banned: document.getElementById('swBanned').classList.contains('on'),
+    banReason: document.getElementById('banReasonInput').value.trim(),
+    blockedFeatures: feats,
+    notes: document.getElementById('notesInput').value.trim()
+  };
+  api('/api/admin/player/' + encodeURIComponent(currentUid), {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(patch)
+  }).then(function(){
+    showToast('Сохранено');
+    loadFlagged();
+  }).catch(function(e){ showToast('Ошибка: '+e.message); });
+};
+
+function loadFlagged(){
+  api('/api/admin/players').then(function(d){
+    var box = document.getElementById('flaggedList');
+    if(!d.players.length){ box.innerHTML = '<p class="sub">Нет забаненных или ограниченных игроков.</p>'; return; }
+    box.innerHTML = d.players.map(function(p){
+      var badges = p.banned ? '<span class="badge banned">БАН</span>' :
+        '<span class="badge blocked">'+(p.blockedFeatures||[]).length+' огранич.</span>';
+      return '<div class="flagged-row" data-uid="'+esc(p.uid)+'">'+
+        '<div><b>'+esc(p.uid)+'</b><div class="sub" style="margin-top:2px">'+esc(p.banReason||p.notes||'')+'</div></div>'+
+        badges+'</div>';
+    }).join('');
+    box.querySelectorAll('.flagged-row').forEach(function(row){
+      row.onclick = function(){ openPlayer(row.getAttribute('data-uid')); };
+    });
+  }).catch(function(e){ showToast('Ошибка: '+e.message); });
+}
+</script>
+</body>
+</html>
