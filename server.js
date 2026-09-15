@@ -832,7 +832,32 @@ app.get('/api/stats', async (req, res) => {
 /* ═══ GET /health — лёгкий пинг для анти-сна на Render (см. README) ═══ */
 app.get('/health', (req, res) => res.status(200).send('ok'));
 
-/* ═══ статика: index.html, config.js, tonconnect-manifest.json, stats.html ═══ */
-app.use(express.static(path.join(__dirname, 'public')));
+/* ═══ статика: stats.html, admin.html, tonconnect-manifest.json, config.js ═══
+   Отдаём по отдельности, а не через express.static на весь каталог —
+   так безопаснее (не отдаст случайно server.js или .env, если кто-то
+   уберёт папку public и положит всё в корень репозитория, как у вас).
+   Каждый файл ищем сначала в public/, если там нет — прямо в корне
+   рядом с server.js. Работает при любой раскладке файлов. */
+function serveStatic(urlPath, filename) {
+  app.get(urlPath, (req, res) => {
+    const inPublic = path.join(__dirname, 'public', filename);
+    const inRoot = path.join(__dirname, filename);
+    const found = fs.existsSync(inPublic) ? inPublic : (fs.existsSync(inRoot) ? inRoot : null);
+    if (!found) return res.status(404).send('Файл ' + filename + ' не найден ни в /public, ни в корне репозитория');
+    res.sendFile(found);
+  });
+}
+serveStatic('/stats.html', 'stats.html');
+serveStatic('/admin.html', 'admin.html');
+serveStatic('/tonconnect-manifest.json', 'tonconnect-manifest.json');
+serveStatic('/config.js', 'config.js');
+serveStatic('/index.html', 'index.html');
+// index.html так же открывается и по корневому адресу (/)
+app.get('/', (req, res) => {
+  const inPublic = path.join(__dirname, 'public', 'index.html');
+  const inRoot = path.join(__dirname, 'index.html');
+  const found = fs.existsSync(inPublic) ? inPublic : (fs.existsSync(inRoot) ? inRoot : null);
+  if (found) res.sendFile(found); else res.status(404).send('index.html не найден');
+});
 
 app.listen(PORT, () => console.log(`Crystallium server on :${PORT}`));
