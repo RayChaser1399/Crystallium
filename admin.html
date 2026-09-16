@@ -67,7 +67,7 @@
   <p class="sub">Поиск по Telegram ID или имени, бан, блокировка отдельных функций. <a href="/stats.html" style="color:var(--gold)">← К статистике</a></p>
 
   <div class="panel">
-    <h2>Поиск игрока</h2>
+    <h2>Игроки <small style="text-transform:none;font-weight:400;color:var(--sub)">— последние активные, или найдите по ID/имени</small></h2>
     <div class="search-row">
       <input type="text" id="searchInput" placeholder="Telegram ID (tg123456789) или имя">
       <button id="btnSearch">Найти</button>
@@ -144,6 +144,7 @@ function enterDash(){
     document.getElementById('gate').classList.add('hidden');
     document.getElementById('dash').classList.remove('hidden');
     loadFlagged();
+    doSearch();
   }).catch(function(e){
     sessionStorage.removeItem('crys_admin_token');
     document.getElementById('gateErr').textContent = e.message;
@@ -157,10 +158,12 @@ document.getElementById('searchInput').addEventListener('keydown', function(e){
 });
 function doSearch(){
   var q = document.getElementById('searchInput').value.trim();
-  if(!q) return;
   api('/api/admin/players/search?q=' + encodeURIComponent(q)).then(function(d){
     var box = document.getElementById('searchResults');
-    if(!d.results.length){ box.innerHTML = '<p class="sub">Ничего не найдено — игрок ещё не заходил в игру или не присылал события.</p>'; return; }
+    if(!d.results.length){
+      box.innerHTML = '<p class="sub">'+(q?'Ничего не найдено.':'Пока никто не заходил в игру — данных ещё нет.')+'</p>';
+      return;
+    }
     box.innerHTML = d.results.map(function(r){
       return '<div class="result-row" data-uid="'+esc(r.uid)+'">'+
         '<div><div class="name">'+esc(r.name||r.uid)+'</div><div class="uid">'+esc(r.uid)+'</div></div>'+
