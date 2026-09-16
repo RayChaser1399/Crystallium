@@ -553,21 +553,20 @@ app.get('/api/admin/players', async (req, res) => {
 app.get('/api/admin/players/search', async (req, res) => {
   if (!ADMIN_TOKEN || req.query.token !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
   const q = String(req.query.q || '').trim().toLowerCase();
-  if (!q) return res.json({ results: [] });
   const events = await readEventsAsync(50000);
   const seen = new Map(); // uid -> {uid, name, lastSeen}
   for (const e of events) {
     if (!e.uid) continue;
-    const uidMatch = e.uid.toLowerCase().includes(q);
+    const uidMatch = !q || e.uid.toLowerCase().includes(q);
     const displayName = e.uname || '';
-    const nameHit = displayName.toLowerCase().includes(q);
-    if (!uidMatch && !nameHit) continue;
+    const nameHit = !q || displayName.toLowerCase().includes(q);
+    if (q && !uidMatch && !nameHit) continue;
     const cur = seen.get(e.uid) || { uid: e.uid, name: displayName, lastSeen: 0 };
     if (displayName) cur.name = displayName;
     if (e.t) cur.lastSeen = Math.max(cur.lastSeen, e.t);
     seen.set(e.uid, cur);
   }
-  const results = Array.from(seen.values()).sort((a, b) => b.lastSeen - a.lastSeen).slice(0, 20);
+  const results = Array.from(seen.values()).sort((a, b) => b.lastSeen - a.lastSeen).slice(0, 30);
   res.json({ results });
 });
 
