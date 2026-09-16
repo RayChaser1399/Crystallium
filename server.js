@@ -25,6 +25,21 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+/* ═══ ПОСЛЕДНИЙ РУБЕЖ ЗАЩИТЫ ═══
+   Без этого одна непредвиденная ошибка (как было с кавычками в
+   UPSTASH_REDIS_REST_URL) валит процесс целиком — Render его,
+   конечно, перезапускает, но несколько секунд/минут сайт лежит
+   для ВСЕХ игроков разом. Теперь такая ошибка просто пишется в
+   лог, а сервер продолжает работать. Это подстраховка "на всякий
+   случай" сверху всех точечных safeRedis() — их наличие не отменяет
+   пользы от этого перехватчика. */
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] uncaughtException (сервер НЕ упал, продолжает работать):', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[fatal] unhandledRejection (сервер НЕ упал, продолжает работать):', err);
+});
+
 const app = express();
 // JSON-парсер подключается на каждом маршруте отдельно (не глобально) —
 // иначе он бы съедал тело запроса ещё до того, как /api/events успеет
@@ -128,13 +143,15 @@ async function lookupCountry(ip) {
   const cached = countryCache.get(ip);
   if (cached && Date.now() - cached.ts < COUNTRY_CACHE_TTL) return cached;
   try {
-    const r = await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,countryCode`);
+    const r = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}?fields=success,country,country_code`);
+    if (!r.ok) { console.error('[geo] ipwho.is HTTP', r.status, 'для IP', ip); return null; }
     const data = await r.json();
-    if (data.status !== 'success') return null;
-    const rec = { country: data.country, countryCode: data.countryCode, ts: Date.now() };
+    if (!data.success) { console.error('[geo] ipwho.is не смог определить страну для', ip, '—', data.message || 'без причины'); return null; }
+    const rec = { country: data.country, countryCode: data.country_code, ts: Date.now() };
     countryCache.set(ip, rec);
     return rec;
   } catch (e) {
+    console.error('[geo] запрос к ipwho.is упал:', e.message);
     return null;
   }
 }
@@ -153,13 +170,27 @@ const PAID_FILE = path.join(DATA_DIR, 'paid.json');
 const EVENTS_FILE = path.join(DATA_DIR, 'events.jsonl');
 const LEADERBOARD_FILE = path.join(DATA_DIR, 'leaderboard.json');
 
-const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL || '';
-const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
-const USE_REDIS = !!(UPSTASH_URL && UPSTASH_TOKEN);
-if (!USE_REDIS) console.warn('[warn] UPSTASH_REDIS_REST_URL/TOKEN не заданы — оплаты и рейтинг хранятся в локальном файле и будут стёрты при следующем деплое на Render. См. README, раздел "Хранилище".');
+function cleanEnvValue(v) {
+  // На случай если при копировании из примера кода (там пишут
+  // UPSTASH_REDIS_REST_URL="https://...") кавычки попали в само
+  // значение переменной на Render — убираем их и лишние пробелы.
+  return String(v || '').trim().replace(/^["']+|["']+$/g, '');
+}
+const UPSTASH_URL = cleanEnvValue(process.env.UPSTASH_REDIS_REST_URL);
+const UPSTASH_TOKEN = cleanEnvValue(process.env.UPSTASH_REDIS_REST_TOKEN);
+let USE_REDIS = !!(UPSTASH_URL && UPSTASH_TOKEN);
+if (USE_REDIS) {
+  try { new URL(UPSTASH_URL); } catch (e) {
+    console.error('[error] UPSTASH_REDIS_REST_URL не похож на корректный URL: "' + UPSTASH_URL + '" — Redis отключён, работаем на локальных файлах. Проверьте значение в Render → Environment (без кавычек, полностью вида https://xxx.upstash.io).');
+    USE_REDIS = false;
+  }
+}
+if (!USE_REDIS) console.warn('[warn] Upstash Redis не подключён — оплаты, рейтинг и события хранятся в локальном файле и будут стёрты при следующем деплое на Render. См. README, раздел "Хранилище".');
 
 /* Низкоуровневый вызов команды Redis через REST-API Upstash.
-   Документация: https://upstash.com/docs/redis/features/restapi */
+   Документация: https://upstash.com/docs/redis/features/restapi
+   Любая ошибка здесь ловится вызывающим кодом (см. safeRedis ниже) —
+   сама по себе она никогда не должна ронять весь сервер. */
 async function redisCmd(...args) {
   const r = await fetch(UPSTASH_URL, {
     method: 'POST',
@@ -171,6 +202,16 @@ async function redisCmd(...args) {
   if (data.error) throw new Error('upstash: ' + data.error);
   return data.result;
 }
+/* Обёртка: если Redis настроен, но команда всё же упала (сеть, опечатка
+   в токене, Upstash недоступен и т.п.) — не роняем сервер, а откатываемся
+   на переданное запасное значение/поведение и один раз пишем в лог. */
+async function safeRedis(fn, fallback) {
+  try { return await fn(); }
+  catch (e) {
+    console.error('[error] Redis-запрос не удался, используем запасной вариант:', e.message);
+    return typeof fallback === 'function' ? fallback() : fallback;
+  }
+}
 
 function readJsonFile(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return {}; }
@@ -180,76 +221,90 @@ function writeJsonFile(file, obj) {
 }
 
 async function getPaid(uid) {
+  const localFallback = () => { const db = readJsonFile(PAID_FILE); return db[uid] || null; };
   if (USE_REDIS) {
-    const raw = await redisCmd('GET', 'paid:' + uid);
-    return raw ? JSON.parse(raw) : null;
+    return safeRedis(async () => {
+      const raw = await redisCmd('GET', 'paid:' + uid);
+      return raw ? JSON.parse(raw) : null;
+    }, localFallback);
   }
-  const db = readJsonFile(PAID_FILE);
-  return db[uid] || null;
+  return localFallback();
 }
 async function markPaid(uid, method, amount) {
   const rec = { paid: true, method, amount, ts: Date.now() };
+  const localFallback = () => { const db = readJsonFile(PAID_FILE); db[uid] = rec; writeJsonFile(PAID_FILE, db); };
   if (USE_REDIS) {
-    await redisCmd('SET', 'paid:' + uid, JSON.stringify(rec));
+    await safeRedis(() => redisCmd('SET', 'paid:' + uid, JSON.stringify(rec)), localFallback);
     return;
   }
-  const db = readJsonFile(PAID_FILE);
-  db[uid] = rec;
-  writeJsonFile(PAID_FILE, db);
+  localFallback();
 }
 
 const EVENTS_LOG_CAP = 50000; // сколько последних событий храним
 
 async function appendEvents(events) {
+  const localFallback = () => {
+    const lines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
+    fs.appendFileSync(EVENTS_FILE, lines);
+  };
   if (USE_REDIS) {
     const lines = events.map(e => JSON.stringify(e));
     if (!lines.length) return;
-    await redisCmd('LPUSH', 'events_log', ...lines);
-    await redisCmd('LTRIM', 'events_log', 0, EVENTS_LOG_CAP - 1);
+    await safeRedis(async () => {
+      await redisCmd('LPUSH', 'events_log', ...lines);
+      await redisCmd('LTRIM', 'events_log', 0, EVENTS_LOG_CAP - 1);
+    }, localFallback);
     return;
   }
-  const lines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
-  fs.appendFileSync(EVENTS_FILE, lines);
+  localFallback();
 }
 
 async function readEventsAsync(limit) {
   if (USE_REDIS) {
-    const raw = await redisCmd('LRANGE', 'events_log', 0, (limit || EVENTS_LOG_CAP) - 1);
-    const out = [];
-    for (const line of (raw || [])) { try { out.push(JSON.parse(line)); } catch (e) {} }
-    return out;
+    return safeRedis(async () => {
+      const raw = await redisCmd('LRANGE', 'events_log', 0, (limit || EVENTS_LOG_CAP) - 1);
+      const out = [];
+      for (const line of (raw || [])) { try { out.push(JSON.parse(line)); } catch (e) {} }
+      return out;
+    }, () => readEvents(limit));
   }
   return readEvents(limit);
 }
 
 async function getLeaderboardEntry(uid) {
+  const localFallback = () => { const db = readJsonFile(LEADERBOARD_FILE); return db[uid] || null; };
   if (USE_REDIS) {
-    const raw = await redisCmd('HGET', 'leaderboard', uid);
-    return raw ? JSON.parse(raw) : null;
+    return safeRedis(async () => {
+      const raw = await redisCmd('HGET', 'leaderboard', uid);
+      return raw ? JSON.parse(raw) : null;
+    }, localFallback);
   }
-  const db = readJsonFile(LEADERBOARD_FILE);
-  return db[uid] || null;
+  return localFallback();
 }
 async function setLeaderboardEntry(uid, entry) {
+  const localFallback = () => { const db = readJsonFile(LEADERBOARD_FILE); db[uid] = entry; writeJsonFile(LEADERBOARD_FILE, db); };
   if (USE_REDIS) {
-    await redisCmd('HSET', 'leaderboard', uid, JSON.stringify(entry));
+    await safeRedis(() => redisCmd('HSET', 'leaderboard', uid, JSON.stringify(entry)), localFallback);
     return;
   }
-  const db = readJsonFile(LEADERBOARD_FILE);
-  db[uid] = entry;
-  writeJsonFile(LEADERBOARD_FILE, db);
+  localFallback();
 }
 async function getLeaderboardTop(limit) {
+  const localFallback = () => {
+    const db = readJsonFile(LEADERBOARD_FILE);
+    return Object.keys(db).map(uid => ({ id: uid, ...db[uid] })).sort((a, b) => b.best - a.best).slice(0, limit);
+  };
   if (USE_REDIS) {
-    const flat = await redisCmd('HGETALL', 'leaderboard'); // [uid1, json1, uid2, json2, ...]
-    const rows = [];
-    for (let i = 0; i < flat.length; i += 2) {
-      try { rows.push({ id: flat[i], ...JSON.parse(flat[i + 1]) }); } catch (e) {}
-    }
-    return rows.sort((a, b) => b.best - a.best).slice(0, limit);
+    return safeRedis(async () => {
+      const flat = await redisCmd('HGETALL', 'leaderboard'); // [uid1, json1, uid2, json2, ...]
+      const rows = [];
+      for (let i = 0; i < flat.length; i += 2) {
+        try { rows.push({ id: flat[i], ...JSON.parse(flat[i + 1]) }); } catch (e) {}
+      }
+      return rows.sort((a, b) => b.best - a.best).slice(0, limit);
+    }, localFallback);
   }
-  const db = readJsonFile(LEADERBOARD_FILE);
-  return Object.keys(db).map(uid => ({ id: uid, ...db[uid] })).sort((a, b) => b.best - a.best).slice(0, limit);
+  return localFallback();
 }
 
 /* ═══ МОДЕРАЦИЯ ИГРОКОВ ═══
@@ -263,48 +318,57 @@ const PLAYERS_FILE = path.join(DATA_DIR, 'players.json');
 const EMPTY_PLAYER = { banned: false, banReason: '', blockedFeatures: [], notes: '' };
 
 async function getPlayerMod(uid) {
+  const localFallback = () => { const db = readJsonFile(PLAYERS_FILE); return db[uid] ? { ...EMPTY_PLAYER, ...db[uid] } : { ...EMPTY_PLAYER }; };
   if (USE_REDIS) {
-    const raw = await redisCmd('HGET', 'players', uid);
-    return raw ? { ...EMPTY_PLAYER, ...JSON.parse(raw) } : { ...EMPTY_PLAYER };
+    return safeRedis(async () => {
+      const raw = await redisCmd('HGET', 'players', uid);
+      return raw ? { ...EMPTY_PLAYER, ...JSON.parse(raw) } : { ...EMPTY_PLAYER };
+    }, localFallback);
   }
-  const db = readJsonFile(PLAYERS_FILE);
-  return db[uid] ? { ...EMPTY_PLAYER, ...db[uid] } : { ...EMPTY_PLAYER };
+  return localFallback();
 }
 async function setPlayerMod(uid, patch) {
   const current = await getPlayerMod(uid);
   const rec = { ...current, ...patch, updatedAt: Date.now() };
+  const localFallback = () => { const db = readJsonFile(PLAYERS_FILE); db[uid] = rec; writeJsonFile(PLAYERS_FILE, db); };
   if (USE_REDIS) {
-    await redisCmd('HSET', 'players', uid, JSON.stringify(rec));
+    await safeRedis(() => redisCmd('HSET', 'players', uid, JSON.stringify(rec)), localFallback);
   } else {
-    const db = readJsonFile(PLAYERS_FILE);
-    db[uid] = rec;
-    writeJsonFile(PLAYERS_FILE, db);
+    localFallback();
   }
   return rec;
 }
 async function listModeratedPlayers() {
+  const localFallback = () => {
+    const db = readJsonFile(PLAYERS_FILE);
+    return Object.keys(db).map(uid => ({ uid, ...db[uid] }));
+  };
   let rows;
   if (USE_REDIS) {
-    const flat = await redisCmd('HGETALL', 'players');
-    rows = [];
-    for (let i = 0; i < flat.length; i += 2) {
-      try { rows.push({ uid: flat[i], ...JSON.parse(flat[i + 1]) }); } catch (e) {}
-    }
+    rows = await safeRedis(async () => {
+      const flat = await redisCmd('HGETALL', 'players');
+      const out = [];
+      for (let i = 0; i < flat.length; i += 2) {
+        try { out.push({ uid: flat[i], ...JSON.parse(flat[i + 1]) }); } catch (e) {}
+      }
+      return out;
+    }, localFallback);
   } else {
-    const db = readJsonFile(PLAYERS_FILE);
-    rows = Object.keys(db).map(uid => ({ uid, ...db[uid] }));
+    rows = localFallback();
   }
   return rows.filter(r => r.banned || (r.blockedFeatures && r.blockedFeatures.length))
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
 async function getPaidCount() {
+  const localFallback = () => { const db = readJsonFile(PAID_FILE); return Object.values(db).filter(p => p.paid).length; };
   if (USE_REDIS) {
-    const keys = await redisCmd('KEYS', 'paid:*');
-    return Array.isArray(keys) ? keys.length : 0;
+    return safeRedis(async () => {
+      const keys = await redisCmd('KEYS', 'paid:*');
+      return Array.isArray(keys) ? keys.length : 0;
+    }, localFallback);
   }
-  const db = readJsonFile(PAID_FILE);
-  return Object.values(db).filter(p => p.paid).length;
+  return localFallback();
 }
 
 /* ═══ TON: поиск входящего платежа по memo через tonapi.io ═══
@@ -456,7 +520,7 @@ app.post('/api/events', rateLimit(30, 60_000), express.text({ type: () => true, 
     countryCode: geo ? geo.countryCode : undefined,
     receivedAt: Date.now()
   }));
-  appendEvents(stamped);
+  await appendEvents(stamped);
   res.json({ ok: true, stored: stamped.length });
 });
 
