@@ -514,7 +514,7 @@ app.post('/api/events', rateLimit(30, 60_000), express.text({ type: () => true, 
   const stamped = events.map(e => ({
     ...e,
     uid: auth ? auth.uid : e.uid,
-    name: auth && auth.user ? (auth.user.username ? '@' + auth.user.username : auth.user.first_name) : undefined,
+    uname: auth && auth.user ? (auth.user.username ? '@' + auth.user.username : auth.user.first_name) : e.uname,
     ip,
     country: geo ? geo.country : undefined,
     countryCode: geo ? geo.countryCode : undefined,
@@ -559,7 +559,7 @@ app.get('/api/admin/players/search', async (req, res) => {
   for (const e of events) {
     if (!e.uid) continue;
     const uidMatch = e.uid.toLowerCase().includes(q);
-    const displayName = e.name || '';
+    const displayName = e.uname || '';
     const nameHit = displayName.toLowerCase().includes(q);
     if (!uidMatch && !nameHit) continue;
     const cur = seen.get(e.uid) || { uid: e.uid, name: displayName, lastSeen: 0 };
@@ -582,7 +582,7 @@ app.get('/api/admin/player/:uid', async (req, res) => {
     let lastCoins = null, lastLevel = null, lastEndlessWave = null;
     for (const e of events) {
       if (e.t) lastSeen = Math.max(lastSeen, e.t);
-      if (e.name) name = e.name;
+      if (e.uname) name = e.uname;
       if (e.country) { country = e.country; countryCode = e.countryCode || ''; }
       if (e.name === 'session_start' && e.p) {
         if (e.p.platform) platform = e.p.platform;
@@ -632,9 +632,10 @@ app.post('/api/admin/player/:uid', express.json({ limit: '64kb' }), async (req, 
 
 /* ═══ Админ: сброс тестовых данных ═══
    POST /api/admin/reset?token=ADMIN_TOKEN
-   Тело (необязательно): {"scope":"payments"} или {"scope":"leaderboard"}
-   или {"scope":"all"} (по умолчанию). Можно ограничить одним игроком:
-   {"uid":"tg12345678"} — тогда чистит только его. */
+   Тело (необязательно): {"scope":"payments"}, {"scope":"leaderboard"}
+   или {"scope":"events"} (полностью чистит лог событий — не разделяется
+   по игроку) или {"scope":"all"} (всё вместе, по умолчанию). Можно
+   ограничить payments/leaderboard одним игроком: {"uid":"tg12345678"}. */
 app.post('/api/admin/reset', express.json(), async (req, res) => {
   if (!ADMIN_TOKEN || req.query.token !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
   const scope = (req.body && req.body.scope) || 'all';
@@ -660,6 +661,11 @@ app.post('/api/admin/reset', express.json(), async (req, res) => {
       } else {
         writeJsonFile(LEADERBOARD_FILE, {});
       }
+    }
+    if (scope === 'events' || scope === 'all') {
+      // лог событий общий, не по игрокам — uid здесь не учитывается
+      if (USE_REDIS) await redisCmd('DEL', 'events_log');
+      else fs.writeFileSync(EVENTS_FILE, '');
     }
     res.json({ ok: true, scope, uid: uid || 'all' });
   } catch (e) {
@@ -718,7 +724,7 @@ app.get('/api/stats', async (req, res) => {
       platformCounts[e.p.platform] = (platformCounts[e.p.platform] || 0) + 1;
     }
 
-    if (e.uid && e.name) nameByUid.set(e.uid, e.name || nameByUid.get(e.uid) || e.uid);
+    if (e.uid && e.uname) nameByUid.set(e.uid, e.uname || nameByUid.get(e.uid) || e.uid);
     if (e.uid && e.country && !countryByUser.has(e.uid)) countryByUser.set(e.uid, { country: e.country, countryCode: e.countryCode });
     if (e.ip) {
       if (!ipToUids.has(e.ip)) ipToUids.set(e.ip, new Set());
