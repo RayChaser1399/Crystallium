@@ -554,16 +554,17 @@ app.get('/api/admin/players/search', async (req, res) => {
   if (!ADMIN_TOKEN || req.query.token !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
   const q = String(req.query.q || '').trim().toLowerCase();
   const events = await readEventsAsync(50000);
-  const seen = new Map(); // uid -> {uid, name, lastSeen}
+  const seen = new Map(); // uid -> {uid, name, lastSeen, lastIp}
   for (const e of events) {
     if (!e.uid) continue;
     const uidMatch = !q || e.uid.toLowerCase().includes(q);
     const displayName = e.uname || '';
     const nameHit = !q || displayName.toLowerCase().includes(q);
     if (q && !uidMatch && !nameHit) continue;
-    const cur = seen.get(e.uid) || { uid: e.uid, name: displayName, lastSeen: 0 };
+    const cur = seen.get(e.uid) || { uid: e.uid, name: displayName, lastSeen: 0, lastIp: '' };
     if (displayName) cur.name = displayName;
     if (e.t) cur.lastSeen = Math.max(cur.lastSeen, e.t);
+    if (e.ip) cur.lastIp = e.ip;
     seen.set(e.uid, cur);
   }
   const results = Array.from(seen.values()).sort((a, b) => b.lastSeen - a.lastSeen).slice(0, 30);
@@ -577,12 +578,14 @@ app.get('/api/admin/player/:uid', async (req, res) => {
   try {
     const mod = await getPlayerMod(uid);
     const events = (await readEventsAsync(50000)).filter(e => e.uid === uid);
-    let name = uid, country = '', countryCode = '', platform = '', lastSeen = 0;
+    let name = uid, country = '', countryCode = '', platform = '', lastSeen = 0, lastIp = '';
     let lastCoins = null, lastLevel = null, lastEndlessWave = null;
+    const ipsSeen = new Set();
     for (const e of events) {
       if (e.t) lastSeen = Math.max(lastSeen, e.t);
       if (e.uname) name = e.uname;
       if (e.country) { country = e.country; countryCode = e.countryCode || ''; }
+      if (e.ip) { lastIp = e.ip; ipsSeen.add(e.ip); }
       if (e.name === 'session_start' && e.p) {
         if (e.p.platform) platform = e.p.platform;
         if (e.p.coins != null) lastCoins = e.p.coins;
@@ -597,6 +600,7 @@ app.get('/api/admin/player/:uid', async (req, res) => {
     res.json({
       uid, name, country, countryCode, platform, lastSeen,
       lastCoins, lastLevel, lastEndlessWave,
+      lastIp, allIps: Array.from(ipsSeen),
       paid: !!(paidRec && paidRec.paid), paidMethod: paidRec ? paidRec.method : null,
       leaderboardBest: lbRec ? lbRec.best : 0,
       eventsCount: events.length,
