@@ -63,8 +63,13 @@
 </div>
 
 <div id="dash" class="hidden">
-  <h1>Модерация игроков</h1>
-  <p class="sub">Поиск по Telegram ID или имени, бан, блокировка отдельных функций. <a href="/stats.html" style="color:var(--gold)">← К статистике</a></p>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+    <div>
+      <h1>Модерация игроков</h1>
+      <p class="sub">Поиск по Telegram ID или имени, бан, блокировка отдельных функций.</p>
+    </div>
+    <a href="/stats.html" style="background:var(--panel);border:1px solid var(--gold);border-radius:10px;color:var(--gold);padding:10px 16px;font-size:13px;font-weight:700;text-decoration:none;display:inline-block">📊 К статистике</a>
+  </div>
 
   <div class="panel">
     <h2>Игроки <small style="text-transform:none;font-weight:400;color:var(--sub)">— последние активные, или найдите по ID/имени</small></h2>
@@ -79,6 +84,7 @@
     <h2>Карточка игрока</h2>
     <div id="playerHeader"></div>
     <div class="card" id="playerStats"></div>
+    <div id="ipNote" style="display:none;background:rgba(255,93,108,.1);border:1px solid var(--bad);color:var(--bad);border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:14px"></div>
 
     <div class="row">
       <span class="lbl"><b>🚫 Бан</b> — полностью блокирует оплату и рейтинг</span>
@@ -166,7 +172,7 @@ function doSearch(){
     }
     box.innerHTML = d.results.map(function(r){
       return '<div class="result-row" data-uid="'+esc(r.uid)+'">'+
-        '<div><div class="name">'+esc(r.name||r.uid)+'</div><div class="uid">'+esc(r.uid)+'</div></div>'+
+        '<div><div class="name">'+esc(r.name||r.uid)+'</div><div class="uid">'+esc(r.uid)+(r.lastIp?' · <span class="mono">'+esc(r.lastIp)+'</span>':'')+'</div></div>'+
         '<div class="seen">'+fmtDate(r.lastSeen)+'</div></div>';
     }).join('');
     box.querySelectorAll('.result-row').forEach(function(row){
@@ -201,7 +207,16 @@ function openPlayer(uid){
       {v: d.platform || '—', l:'Платформа'},
       {v: d.eventsCount, l:'Событий'},
       {v: fmtDate(d.lastSeen), l:'Последний визит'},
+      {v: '<span class="mono">'+(esc(d.lastIp)||'—')+'</span>', l:'IP-адрес'+((d.allIps&&d.allIps.length>1)?(' ('+d.allIps.length+' разных)'):'')},
     ].map(function(c){return '<div class="stat"><b>'+c.v+'</b><span>'+c.l+'</span></div>';}).join('');
+
+    var ipNote = document.getElementById('ipNote');
+    if(d.allIps && d.allIps.length>1){
+      ipNote.style.display='block';
+      ipNote.innerHTML='⚠ Этот игрок заходил с '+d.allIps.length+' разных IP: <span class="mono">'+d.allIps.map(esc).join(', ')+'</span>';
+    }else{
+      ipNote.style.display='none';
+    }
 
     setSwitch('swBanned', d.moderation.banned);
     document.getElementById('banReasonInput').value = d.moderation.banReason || '';
