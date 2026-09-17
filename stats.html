@@ -13,6 +13,8 @@
   .gate{max-width:360px;margin:80px auto;text-align:center}
   .gate input{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:12px;font-size:15px;margin:12px 0}
   .gate button,.refresh{background:var(--gold);border:none;border-radius:10px;color:#1a1300;font-weight:700;padding:11px 18px;font-size:14px;cursor:pointer}
+  .secondary{background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:10px 16px;font-size:13px;cursor:pointer;font-weight:600}
+  .navbtn{background:var(--panel);border:1px solid var(--gold);border-radius:10px;color:var(--gold);padding:10px 16px;font-size:13px;font-weight:700;text-decoration:none;display:inline-block}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
   .card b{display:block;font-size:24px;margin-bottom:2px}
@@ -58,8 +60,11 @@
       <h1>Кристаллиум — статистика</h1>
       <p class="sub" id="lastUpdate">—</p>
     </div>
-    <button class="refresh" id="btnRefresh">Обновить</button>
-    <a href="/admin.html" style="color:var(--sub);font-size:13px;text-decoration:none;margin-left:8px">→ Модерация игроков</a>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="refresh" id="btnRefresh">Обновить</button>
+      <button class="secondary" id="btnClearEvents">Очистить события</button>
+      <a href="/admin.html" class="navbtn">👤 Модерация игроков</a>
+    </div>
   </div>
 
   <div class="grid" id="cards"></div>
@@ -302,10 +307,17 @@ function render(s){
   }).join('') : '<tr><td colspan="5" class="empty">Пока никто не играл</td></tr>';
 
   // все события
+  var EVENT_LABELS = {
+    session_start:'Открытие игры', level_start:'Начало уровня', level_win:'Победа на уровне',
+    level_lose:'Поражение на уровне', endless_wave_start:'Начало волны (бескон.)',
+    endless_wave_win:'Волна пройдена (бескон.)', endless_wave_lose:'Волна не пройдена (бескон.)',
+    ad_shown:'Показ рекламы', ad_completed:'Реклама досмотрена', ad_failed:'Реклама не досмотрена',
+    purchase_confirmed:'Покупка подтверждена', free_reward_used:'Бесплатная награда (лимит)'
+  };
   var eBody = document.querySelector('#eventsTable tbody');
   var types = Object.keys(s.byType).sort(function(a,b){return s.byType[b]-s.byType[a];});
   eBody.innerHTML = types.map(function(k){
-    return '<tr><td>'+esc(k)+'</td><td>'+s.byType[k]+'</td></tr>';
+    return '<tr><td>'+esc(EVENT_LABELS[k]||k)+'</td><td>'+s.byType[k]+'</td></tr>';
   }).join('') || '<tr><td colspan="2" class="empty">Нет данных</td></tr>';
 }
 
@@ -339,6 +351,14 @@ document.getElementById('tokenInput').addEventListener('keydown', function(e){
   if(e.key === 'Enter') document.getElementById('btnEnter').click();
 });
 document.getElementById('btnRefresh').onclick = load;
+document.getElementById('btnClearEvents').onclick = function(){
+  if(!confirm('Удалить ВСЕ накопленные события статистики? Отменить нельзя. Оплаты и рейтинг игроков это не затронет.')) return;
+  fetch('/api/admin/reset?token=' + encodeURIComponent(TOKEN), {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({scope:'events'})
+  }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(function(){ alert('Готово, события очищены.'); load(); })
+    .catch(function(e){ alert('Ошибка: '+e.message); });
+};
 
 if(TOKEN) load();
 </script>
