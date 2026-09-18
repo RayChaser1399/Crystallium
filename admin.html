@@ -50,6 +50,12 @@
   .toast.show{opacity:1}
   .err{color:var(--bad);margin-top:10px;font-size:13px}
   .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .detail-block{margin:18px 0}
+  .detail-block h3{font-size:13px;margin:0 0 8px;color:var(--text)}
+  .tbl-wrap{max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:10px}
+  .tbl-wrap table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .tbl-wrap th,.tbl-wrap td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line)}
+  .tbl-wrap th{color:var(--sub);font-weight:600;background:#0d1120;position:sticky;top:0}
 </style>
 </head>
 <body>
@@ -86,7 +92,36 @@
     <div class="card" id="playerStats"></div>
     <div id="ipNote" style="display:none;background:rgba(255,93,108,.1);border:1px solid var(--bad);color:var(--bad);border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:14px"></div>
 
-    <div class="row">
+    <div class="detail-block">
+      <h3>📺 Реклама</h3>
+      <div class="card" id="playerAds"></div>
+    </div>
+    <div class="detail-block">
+      <h3>🗺️ Кампания (300 уровней)</h3>
+      <div class="card" id="playerCampaign"></div>
+    </div>
+    <div class="detail-block">
+      <h3>♾️ Бесконечный режим</h3>
+      <div class="card" id="playerEndless"></div>
+    </div>
+    <div class="detail-block">
+      <h3>💰 Покупки</h3>
+      <div id="playerPurchases" class="sub">—</div>
+    </div>
+    <div class="detail-block">
+      <h3>🎁 Бесплатные награды (лимит 5/сутки)</h3>
+      <div id="playerFreeRewards" class="sub">—</div>
+    </div>
+    <div class="detail-block">
+      <h3>📋 Все события этого игрока</h3>
+      <div class="tbl-wrap" id="playerByType"></div>
+    </div>
+    <div class="detail-block">
+      <h3>🕓 Последние события (свежие сверху)</h3>
+      <div class="tbl-wrap" id="playerRecent"></div>
+    </div>
+
+    <div class="row" style="margin-top:6px">
       <span class="lbl"><b>🚫 Бан</b> — полностью блокирует оплату и рейтинг</span>
       <button class="switch ban-switch" id="swBanned"></button>
     </div>
@@ -206,9 +241,66 @@ function openPlayer(uid){
       {v: (d.country?flagEmoji(d.countryCode)+' ':'')+(d.country||'—'), l:'Страна'},
       {v: d.platform || '—', l:'Платформа'},
       {v: d.eventsCount, l:'Событий'},
+      {v: fmtDate(d.firstSeen), l:'Первый визит'},
       {v: fmtDate(d.lastSeen), l:'Последний визит'},
+      {v: d.daysActiveCount||0, l:'Дней с активностью'},
       {v: '<span class="mono">'+(esc(d.lastIp)||'—')+'</span>', l:'IP-адрес'+((d.allIps&&d.allIps.length>1)?(' ('+d.allIps.length+' разных)'):'')},
     ].map(function(c){return '<div class="stat"><b>'+c.v+'</b><span>'+c.l+'</span></div>';}).join('');
+
+    var ads = d.ads || {shown:0,completed:0,failed:0,completionRate:0};
+    document.getElementById('playerAds').innerHTML = [
+      {v: ads.shown, l:'Показов'}, {v: ads.completed, l:'Досмотрено'},
+      {v: ads.failed, l:'Не досмотрено'}, {v: ads.completionRate+'%', l:'% досмотра'}
+    ].map(function(c){return '<div class="stat"><b>'+c.v+'</b><span>'+c.l+'</span></div>';}).join('');
+
+    var camp = d.campaign || {starts:0,wins:0,loses:0,winRate:0};
+    document.getElementById('playerCampaign').innerHTML = [
+      {v: camp.starts, l:'Стартов уровня'}, {v: camp.wins, l:'Побед'},
+      {v: camp.loses, l:'Поражений'}, {v: camp.winRate+'%', l:'% побед'}
+    ].map(function(c){return '<div class="stat"><b>'+c.v+'</b><span>'+c.l+'</span></div>';}).join('');
+
+    var en = d.endless || {starts:0,wins:0,loses:0,bestWave:0,avgWave:0};
+    document.getElementById('playerEndless').innerHTML = [
+      {v: en.starts, l:'Волн начато'}, {v: en.wins, l:'Пройдено'},
+      {v: en.loses, l:'Не пройдено'}, {v: en.bestWave, l:'Лучшая волна'}, {v: en.avgWave, l:'Средняя волна'}
+    ].map(function(c){return '<div class="stat"><b>'+c.v+'</b><span>'+c.l+'</span></div>';}).join('');
+
+    var ph = d.purchaseHistory || [];
+    document.getElementById('playerPurchases').innerHTML = ph.length
+      ? '<table style="width:100%;font-size:12.5px"><tr><th style="text-align:left;color:var(--sub)">Когда</th><th style="text-align:left;color:var(--sub)">Способ</th><th style="text-align:left;color:var(--sub)">Проверка</th></tr>'+
+        ph.map(function(p){return '<tr><td>'+fmtDate(p.t)+'</td><td>'+esc(p.mode)+'</td><td>'+esc(p.verified)+'</td></tr>';}).join('')+'</table>'
+      : 'Покупок не было.';
+
+    var fr = d.freeRewardsUsed || {};
+    var frLabels = {bonus:'Бустеры', gold:'Золото', energy:'Энергия'};
+    var frKeys = Object.keys(fr);
+    document.getElementById('playerFreeRewards').innerHTML = frKeys.length
+      ? frKeys.map(function(k){return (frLabels[k]||k)+': <b>'+fr[k]+'</b>';}).join(' &nbsp;·&nbsp; ')
+      : 'Не использовал бесплатный лимит.';
+
+    var EVENT_LABELS = {
+      session_start:'Открытие игры', level_start:'Начало уровня', level_win:'Победа на уровне',
+      level_lose:'Поражение на уровне', endless_wave_start:'Начало волны (бескон.)',
+      endless_wave_win:'Волна пройдена (бескон.)', endless_wave_lose:'Волна не пройдена (бескон.)',
+      ad_shown:'Показ рекламы', ad_completed:'Реклама досмотрена', ad_failed:'Реклама не досмотрена',
+      purchase_confirmed:'Покупка подтверждена', free_reward_used:'Бесплатная награда (лимит)'
+    };
+    var bt = d.byType || {};
+    var btKeys = Object.keys(bt).sort(function(a,b){return bt[b]-bt[a];});
+    document.getElementById('playerByType').innerHTML = btKeys.length
+      ? '<table><thead><tr><th>Событие</th><th>Раз</th></tr></thead><tbody>'+
+        btKeys.map(function(k){return '<tr><td>'+esc(EVENT_LABELS[k]||k)+'</td><td>'+bt[k]+'</td></tr>';}).join('')+
+        '</tbody></table>'
+      : '<p class="sub" style="padding:10px">Нет событий</p>';
+
+    var re = d.recentEvents || [];
+    document.getElementById('playerRecent').innerHTML = re.length
+      ? '<table><thead><tr><th>Когда</th><th>Событие</th><th>Детали</th></tr></thead><tbody>'+
+        re.map(function(e){
+          var details = Object.keys(e.p||{}).map(function(k){return k+'='+e.p[k];}).join(', ');
+          return '<tr><td>'+fmtDate(e.t)+'</td><td>'+esc(EVENT_LABELS[e.name]||e.name)+'</td><td class="mono">'+esc(details)+'</td></tr>';
+        }).join('')+'</tbody></table>'
+      : '<p class="sub" style="padding:10px">Нет событий</p>';
 
     var ipNote = document.getElementById('ipNote');
     if(d.allIps && d.allIps.length>1){
