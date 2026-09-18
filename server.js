@@ -259,16 +259,27 @@ async function appendEvents(events) {
   localFallback();
 }
 
+/* Событие "испорчено", если в поле типа события (name) оказалось имя
+   игрока вместо названия вроде level_win — так было из-за старого бага
+   (уже исправлен), эти записи остались только в логе задним числом.
+   Настоящие типы событий никогда не начинаются с @ и всегда — это
+   единственное слово латиницей с подчёркиваниями. */
+function isCorruptedEvent(e) {
+  return typeof e.name !== 'string' || e.name.startsWith('@') || /\s/.test(e.name);
+}
 async function readEventsAsync(limit) {
+  let out;
   if (USE_REDIS) {
-    return safeRedis(async () => {
+    out = await safeRedis(async () => {
       const raw = await redisCmd('LRANGE', 'events_log', 0, (limit || EVENTS_LOG_CAP) - 1);
-      const out = [];
-      for (const line of (raw || [])) { try { out.push(JSON.parse(line)); } catch (e) {} }
-      return out;
+      const parsed = [];
+      for (const line of (raw || [])) { try { parsed.push(JSON.parse(line)); } catch (e) {} }
+      return parsed;
     }, () => readEvents(limit));
+  } else {
+    out = readEvents(limit);
   }
-  return readEvents(limit);
+  return out.filter(e => !isCorruptedEvent(e));
 }
 
 async function getLeaderboardEntry(uid) {
@@ -577,12 +588,27 @@ app.get('/api/admin/player/:uid', async (req, res) => {
   const uid = req.params.uid;
   try {
     const mod = await getPlayerMod(uid);
-    const events = (await readEventsAsync(50000)).filter(e => e.uid === uid);
-    let name = uid, country = '', countryCode = '', platform = '', lastSeen = 0, lastIp = '';
+    const allEvents = await readEventsAsync(50000);
+    const events = allEvents.filter(e => e.uid === uid).sort((a, b) => (a.t || 0) - (b.t || 0));
+
+    let name = uid, country = '', countryCode = '', platform = '', lastSeen = 0, firstSeen = 0, lastIp = '';
     let lastCoins = null, lastLevel = null, lastEndlessWave = null;
     const ipsSeen = new Set();
+    const daysActive = new Set();
+    const byTypeForPlayer = {};
+    let adShown = 0, adCompleted = 0, adFailed = 0;
+    let levelStarts = 0, levelWins = 0, levelLoses = 0;
+    let endlessStarts = 0, endlessWins = 0, endlessLoses = 0, bestWave = 0, waveSum = 0, waveCount = 0;
+    const purchaseHistory = [];
+    const freeRewardsUsed = {};
+
     for (const e of events) {
-      if (e.t) lastSeen = Math.max(lastSeen, e.t);
+      byTypeForPlayer[e.name] = (byTypeForPlayer[e.name] || 0) + 1;
+      if (e.t) {
+        lastSeen = Math.max(lastSeen, e.t);
+        firstSeen = firstSeen ? Math.min(firstSeen, e.t) : e.t;
+        daysActive.add(new Date(e.t).toISOString().slice(0, 10));
+      }
       if (e.uname) name = e.uname;
       if (e.country) { country = e.country; countryCode = e.countryCode || ''; }
       if (e.ip) { lastIp = e.ip; ipsSeen.add(e.ip); }
@@ -591,19 +617,45 @@ app.get('/api/admin/player/:uid', async (req, res) => {
         if (e.p.coins != null) lastCoins = e.p.coins;
         if (e.p.unlocked != null) lastLevel = e.p.unlocked;
       }
+      if (e.name === 'ad_shown') adShown++;
+      if (e.name === 'ad_completed') adCompleted++;
+      if (e.name === 'ad_failed') adFailed++;
+      if (e.name === 'level_start') levelStarts++;
+      if (e.name === 'level_win') levelWins++;
+      if (e.name === 'level_lose') levelLoses++;
+      if (e.name === 'endless_wave_start') endlessStarts++;
       if (e.name === 'endless_wave_win' && e.p && e.p.wave != null) {
-        lastEndlessWave = Math.max(lastEndlessWave || 0, e.p.wave);
+        endlessWins++; bestWave = Math.max(bestWave, e.p.wave); waveSum += e.p.wave; waveCount++;
       }
+      if (e.name === 'endless_wave_lose') endlessLoses++;
+      if (e.name === 'purchase_confirmed' && e.p) {
+        purchaseHistory.push({ t: e.t, mode: e.p.mode || e.p.method || '?', verified: e.p.verified || '?' });
+      }
+      if (e.name === 'free_reward_used' && e.p && e.p.category) {
+        freeRewardsUsed[e.p.category] = (freeRewardsUsed[e.p.category] || 0) + 1;
+      }
+      if (e.name === 'endless_wave_win' && e.p && e.p.wave != null) lastEndlessWave = Math.max(lastEndlessWave || 0, e.p.wave);
     }
+
     const paidRec = await getPaid(uid);
     const lbRec = await getLeaderboardEntry(uid);
+    const recentEvents = events.slice(-30).reverse().map(e => ({ t: e.t, name: e.name, p: e.p || {} }));
+
     res.json({
-      uid, name, country, countryCode, platform, lastSeen,
+      uid, name, country, countryCode, platform,
+      firstSeen, lastSeen, daysActiveCount: daysActive.size,
       lastCoins, lastLevel, lastEndlessWave,
       lastIp, allIps: Array.from(ipsSeen),
       paid: !!(paidRec && paidRec.paid), paidMethod: paidRec ? paidRec.method : null,
       leaderboardBest: lbRec ? lbRec.best : 0,
       eventsCount: events.length,
+      byType: byTypeForPlayer,
+      ads: { shown: adShown, completed: adCompleted, failed: adFailed, completionRate: adShown ? +(adCompleted / adShown * 100).toFixed(1) : 0 },
+      campaign: { starts: levelStarts, wins: levelWins, loses: levelLoses, winRate: levelStarts ? +(levelWins / levelStarts * 100).toFixed(1) : 0 },
+      endless: { starts: endlessStarts, wins: endlessWins, loses: endlessLoses, bestWave, avgWave: waveCount ? +(waveSum / waveCount).toFixed(1) : 0 },
+      purchaseHistory,
+      freeRewardsUsed,
+      recentEvents,
       moderation: mod
     });
   } catch (e) {
@@ -707,6 +759,11 @@ app.get('/api/stats', async (req, res) => {
   const sidTimes = new Map();     // sid -> {min, max}
   const daysByUser = new Map();   // uid -> Set(день)
 
+  // часы пик — распределение по часу суток (UTC)
+  const hourAll = new Array(24).fill(0);      // любая активность
+  const hourSessions = new Array(24).fill(0); // старты сессий (session_start)
+  const hourEndless = new Array(24).fill(0);  // старты/победы волн бескон. режима
+
   for (const e of events) {
     byType[e.name] = (byType[e.name] || 0) + 1;
     if (e.uid) usersSeen.add(e.uid);
@@ -725,6 +782,12 @@ app.get('/api/stats', async (req, res) => {
     }
     if (e.name === 'session_start' && e.p && e.p.platform) {
       platformCounts[e.p.platform] = (platformCounts[e.p.platform] || 0) + 1;
+    }
+    if (e.t) {
+      const hr = new Date(e.t).getUTCHours();
+      hourAll[hr]++;
+      if (e.name === 'session_start') hourSessions[hr]++;
+      if (e.name === 'endless_wave_start' || e.name === 'endless_wave_win') hourEndless[hr]++;
     }
 
     if (e.uid && e.uname) nameByUid.set(e.uid, e.uname || nameByUid.get(e.uid) || e.uid);
@@ -887,6 +950,12 @@ app.get('/api/stats', async (req, res) => {
     newVsReturningToday: { newToday, returningToday },
     byPlatform,
     avgSessionMinutes,
+    peakHours: {
+      all: hourAll.map((count, hour) => ({ hour, count })),
+      sessions: hourSessions.map((count, hour) => ({ hour, count })),
+      endless: hourEndless.map((count, hour) => ({ hour, count })),
+      timezone: 'UTC'
+    },
     endless: {
       sessions: endlessSessions,
       wavesPlayedTotal: endlessWavesTotal,
@@ -907,16 +976,22 @@ app.get('/health', (req, res) => res.status(200).send('ok'));
 
 /* ═══ статика: stats.html, admin.html, tonconnect-manifest.json, config.js ═══
    Отдаём по отдельности, а не через express.static на весь каталог —
-   так безопаснее (не отдаст случайно server.js или .env, если кто-то
-   уберёт папку public и положит всё в корень репозитория, как у вас).
-   Каждый файл ищем сначала в public/, если там нет — прямо в корне
-   рядом с server.js. Работает при любой раскладке файлов. */
+   так безопаснее (не отдаст случайно server.js или .env). Сначала
+   смотрим в корне репозитория (там у вас всё и лежит), и только если
+   там файла нет — пробуем /public (на случай если он всё же есть).
+   Раньше было наоборот, и если в репозитории случайно осталась старая
+   копия в /public — сервер упрямо продолжал бы отдавать именно её. */
+function resolveStaticFile(filename) {
+  const inRoot = path.join(__dirname, filename);
+  const inPublic = path.join(__dirname, 'public', filename);
+  if (fs.existsSync(inRoot)) return inRoot;
+  if (fs.existsSync(inPublic)) return inPublic;
+  return null;
+}
 function serveStatic(urlPath, filename) {
   app.get(urlPath, (req, res) => {
-    const inPublic = path.join(__dirname, 'public', filename);
-    const inRoot = path.join(__dirname, filename);
-    const found = fs.existsSync(inPublic) ? inPublic : (fs.existsSync(inRoot) ? inRoot : null);
-    if (!found) return res.status(404).send('Файл ' + filename + ' не найден ни в /public, ни в корне репозитория');
+    const found = resolveStaticFile(filename);
+    if (!found) return res.status(404).send('Файл ' + filename + ' не найден ни в корне репозитория, ни в /public');
     res.sendFile(found);
   });
 }
@@ -927,10 +1002,23 @@ serveStatic('/config.js', 'config.js');
 serveStatic('/index.html', 'index.html');
 // index.html так же открывается и по корневому адресу (/)
 app.get('/', (req, res) => {
-  const inPublic = path.join(__dirname, 'public', 'index.html');
-  const inRoot = path.join(__dirname, 'index.html');
-  const found = fs.existsSync(inPublic) ? inPublic : (fs.existsSync(inRoot) ? inRoot : null);
+  const found = resolveStaticFile('index.html');
   if (found) res.sendFile(found); else res.status(404).send('index.html не найден');
+});
+/* Диагностика: покажет точный путь и время изменения файла, который
+   реально отдаётся по каждому адресу — удобно проверять, не читается
+   ли где-то старая копия. Откройте /debug/files в браузере. */
+app.get('/debug/files', (req, res) => {
+  if (!ADMIN_TOKEN || req.query.token !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+  const names = ['index.html', 'config.js', 'stats.html', 'admin.html', 'tonconnect-manifest.json'];
+  const report = {};
+  for (const name of names) {
+    const found = resolveStaticFile(name);
+    report[name] = found
+      ? { servedFrom: found, modifiedAt: fs.statSync(found).mtime, sizeBytes: fs.statSync(found).size }
+      : { servedFrom: null, note: 'файл не найден' };
+  }
+  res.json(report);
 });
 
 app.listen(PORT, () => console.log(`Crystallium server on :${PORT}`));
