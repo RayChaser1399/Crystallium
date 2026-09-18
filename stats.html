@@ -74,6 +74,11 @@
     <canvas id="dauChart" width="900" height="140"></canvas>
   </div>
 
+  <div class="panel">
+    <h2>Часы пик <small>по часам суток, UTC — активность и волны бесконечного режима</small></h2>
+    <canvas id="hoursChart" width="900" height="140"></canvas>
+  </div>
+
   <div class="two-col">
     <div class="panel">
       <h2>Страны игроков</h2>
@@ -171,6 +176,40 @@ function flagEmoji(code){
   return String.fromCodePoint(...[...cc].map(function(c){return 127397 + c.charCodeAt(0);}));
 }
 
+function drawDualBars(canvas, data){
+  var ctx = canvas.getContext('2d');
+  var w = canvas.width = canvas.clientWidth || 900;
+  var h = canvas.height;
+  ctx.clearRect(0,0,w,h);
+  if(!data.length || !data.some(function(d){return d.count>0;})){
+    ctx.fillStyle='#8992b3'; ctx.font='12px sans-serif'; ctx.fillText('Нет данных', 10, 20); return;
+  }
+  var max = Math.max.apply(null, data.map(function(d){return d.count;})) || 1;
+  var bw = w / data.length;
+  ctx.font = '9px sans-serif';
+  data.forEach(function(d, i){
+    var bh = (d.count / max) * (h - 30);
+    var eh = (d.endless / max) * (h - 30);
+    var x = i * bw + 2;
+    ctx.fillStyle = '#f2c14e';
+    ctx.fillRect(x, h - bh - 20, bw - 4, bh);
+    if(d.endless>0){
+      ctx.fillStyle = '#8a6cff';
+      ctx.fillRect(x, h - eh - 20, (bw-4)/2, eh);
+    }
+    ctx.fillStyle = '#8992b3';
+    ctx.save();
+    ctx.translate(x + (bw-4)/2, h - 4);
+    ctx.rotate(-Math.PI/3);
+    ctx.fillText(d.hour, 0, 0);
+    ctx.restore();
+  });
+  ctx.fillStyle='#f2c14e'; ctx.fillRect(w-160,4,10,10);
+  ctx.fillStyle='#eef1fb'; ctx.fillText('вся активность', w-145,13);
+  ctx.fillStyle='#8a6cff'; ctx.fillRect(w-160,18,10,10);
+  ctx.fillStyle='#eef1fb'; ctx.fillText('бесконечный режим', w-145,27);
+}
+
 function drawBars(canvas, data, labelKey, valueKey, color){
   var ctx = canvas.getContext('2d');
   var w = canvas.width = canvas.clientWidth || 900;
@@ -214,6 +253,13 @@ function render(s){
   document.getElementById('lastUpdate').textContent = 'Последнее событие: ' + fmtDate(s.lastEventAt);
 
   drawBars(document.getElementById('dauChart'), s.dau, 'day', 'users');
+
+  // часы пик
+  var ph = s.peakHours || {all:[], sessions:[], endless:[]};
+  var hoursData = (ph.all||[]).map(function(row, i){
+    return { hour: (row.hour<10?'0':'')+row.hour+':00', count: row.count, endless: (ph.endless[i]||{}).count||0 };
+  });
+  drawDualBars(document.getElementById('hoursChart'), hoursData);
 
   // страны
   var cBody = document.querySelector('#countryTable tbody');
